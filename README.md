@@ -17,12 +17,16 @@
 한/글 설치 없이, OS에 관계없이 HWPX 문서의 구조를 파싱하고 콘텐츠를 조작할 수 있습니다.
 문서 편집 API뿐 아니라 스키마/패키지 검증, unpack/pack, 템플릿 분석 같은 XML-first 워크플로도 함께 제공합니다.
 
+> **CLI 도구 추가됨!** 🎉
+> 명령줄에서 바로 HWPX 문서를 생성, 편집, 검증할 수 있습니다.
+
 > **pyhwpx / pyhwp와 다른 점?**
 > | | python-hwpx | pyhwpx | pyhwp |
 > |---|---|---|---|
 > | **대상 포맷** | `.hwpx` (OWPML/OPC) | `.hwpx` | `.hwp` (v5 바이너리) |
 > | **한/글 설치** | 불필요 | 필요 (Windows COM) | 불필요 |
 > | **크로스 플랫폼** | ✅ Linux / macOS / Windows / CI | ❌ Windows 전용 | ✅ |
+> | **CLI 도구** | ✅ `hwpx` 명령어 | ❌ | ❌ |
 > | **방식** | 직접 XML 파싱 | COM 자동화 | OLE 파싱 |
 
 ## 🌍 크로스 플랫폼 지원
@@ -43,6 +47,43 @@ pip install python-hwpx
 ```
 
 > 유일한 의존성은 `lxml`입니다.
+
+## CLI 도구 사용법
+
+python-hwpx는 강력한 명령줄 인터페이스도 제공합니다:
+
+```bash
+# 도움말 보기
+hwpx --help
+
+# 새 문서 만들기
+hwpx document new --output mydoc.hwpx
+
+# 텍스트 추가하기
+hwpx --file mydoc.hwpx text add "안녕하세요, CLI로 작성한 문서입니다."
+
+# 문서 정보 확인
+hwpx --file mydoc.hwpx document info
+
+# 마크다운으로 내보내기
+hwpx --file mydoc.hwpx export markdown -o output.md
+
+# 문서 검증
+hwpx validate package mydoc.hwpx
+```
+
+### CLI 명령어
+
+| 명령어 | 설명 | 예제 |
+|--------|------|------|
+| `hwpx document new` | 새 HWPX 문서 생성 | `hwpx document new --output doc.hwpx` |
+| `hwpx document info` | 문서 정보 조회 | `hwpx --file doc.hwpx document info` |
+| `hwpx text add` | 텍스트 단락 추가 | `hwpx --file doc.hwpx text add "내용"` |
+| `hwpx text extract` | 텍스트 추출 | `hwpx --file doc.hwpx text extract` |
+| `hwpx table add` | 표 삽입 | `hwpx --file doc.hwpx table add --rows 3 --cols 4` |
+| `hwpx export markdown` | 마크다운 내보내기 | `hwpx --file doc.hwpx export markdown -o doc.md` |
+| `hwpx validate package` | 문서 검증 | `hwpx validate package doc.hwpx` |
+| `hwpx repl` | 대화형 모드 | `hwpx repl` |
 
 ## Quick Start
 
@@ -82,7 +123,8 @@ doc.save_to_path("결과물.hwpx")
 
 | 카테고리 | 기능 | 설명 |
 |----------|------|------|
-| 📄 **문서 I/O** | 열기/저장/생성 | 파일, 바이트, 스트림 입출력 · 원자적 저장 · ZIP 무결성 검증 |
+| �️ **CLI 도구** | 명령줄 인터페이스 | `hwpx` 명령어로 문서 생성/편집/검증 |
+| �📄 **문서 I/O** | 열기/저장/생성 | 파일, 바이트, 스트림 입출력 · 원자적 저장 · ZIP 무결성 검증 |
 | 📝 **단락** | 추가/삭제/편집/서식 | 텍스트 설정, 단락 삭제(`remove_paragraph`), 스타일 참조 |
 | ✏️ **Run** | 텍스트 조각 | 추가, 교체, 볼드/이탤릭/밑줄/색상 서식 |
 | 📊 **표(Table)** | 생성/편집/병합 | N×M 표 생성, 셀 텍스트, 셀 병합/분할, 중첩 테이블 |
