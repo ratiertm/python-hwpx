@@ -55,6 +55,11 @@ ET.register_namespace("hp10", "http://www.hancom.co.kr/hwpml/2016/paragraph")
 ET.register_namespace("hs10", "http://www.hancom.co.kr/hwpml/2016/section")
 ET.register_namespace("hc10", "http://www.hancom.co.kr/hwpml/2016/core")
 ET.register_namespace("hh10", "http://www.hancom.co.kr/hwpml/2016/head")
+# SPEC: e2e-namespace-2024-compat-009 -- OWPML 2024 방어 등록
+ET.register_namespace("hp24", "http://www.owpml.org/owpml/2024/paragraph")
+ET.register_namespace("hs24", "http://www.owpml.org/owpml/2024/section")
+ET.register_namespace("hc24", "http://www.owpml.org/owpml/2024/core")
+ET.register_namespace("hh24", "http://www.owpml.org/owpml/2024/head")
 logger = logging.getLogger(__name__)
 
 _HP_NS = "http://www.hancom.co.kr/hwpml/2011/paragraph"
