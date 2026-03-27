@@ -4421,9 +4421,20 @@ class HwpxOxmlDocument:
         bold: bool = False,
         italic: bool = False,
         underline: bool = False,
+        height: int | None = None,
+        text_color: str | None = None,
         base_char_pr_id: str | int | None = None,
     ) -> str:
-        """Return a char property identifier matching the requested flags."""
+        """Return a char property identifier matching the requested flags.
+
+        Args:
+            bold: Bold text.
+            italic: Italic text.
+            underline: Underlined text.
+            height: Font size in hwpunit (100 = 1pt, 1000 = 10pt, 2000 = 20pt).
+            text_color: Text color as #RRGGBB string.
+            base_char_pr_id: Base char property to clone from.
+        """
 
         if not self._headers:
             raise ValueError("document does not contain any headers")
@@ -4441,9 +4452,27 @@ class HwpxOxmlDocument:
             return bold_present, italic_present, underline_present
 
         def predicate(element: ET.Element) -> bool:
-            return element_flags(element) == target
+            if element_flags(element) != target:
+                return False
+            if height is not None:
+                el_height = element.get("height")
+                if el_height is None or int(el_height) != height:
+                    return False
+            if text_color is not None:
+                el_color = element.get("textColor")
+                if el_color is None or el_color.upper() != text_color.upper():
+                    return False
+            return True
 
         def modifier(element: ET.Element) -> None:
+            # Set height (font size)
+            if height is not None:
+                element.set("height", str(height))
+
+            # Set text color
+            if text_color is not None:
+                element.set("textColor", text_color)
+
             underline_nodes = list(element.findall(f"{_HH}underline"))
             base_underline_attrs = dict(underline_nodes[0].attrib) if underline_nodes else {}
 
@@ -4454,10 +4483,11 @@ class HwpxOxmlDocument:
             for child in underline_nodes:
                 element.remove(child)
 
+            # Use lxml SubElement since ensure_char_property returns lxml elements
             if target[0]:
-                ET.SubElement(element, f"{_HH}bold")
+                LET.SubElement(element, f"{_HH}bold")
             if target[1]:
-                ET.SubElement(element, f"{_HH}italic")
+                LET.SubElement(element, f"{_HH}italic")
 
             underline_attrs = dict(base_underline_attrs)
             if target[2]:
@@ -4469,14 +4499,14 @@ class HwpxOxmlDocument:
                     underline_attrs["color"] = base_underline_attrs["color"]
                 if "color" not in underline_attrs:
                     underline_attrs["color"] = "#000000"
-                ET.SubElement(element, f"{_HH}underline", underline_attrs)
+                LET.SubElement(element, f"{_HH}underline", underline_attrs)
             else:
                 attrs = dict(base_underline_attrs)
                 attrs["type"] = "NONE"
                 attrs.setdefault("shape", base_underline_attrs.get("shape", "SOLID"))
                 if "color" in base_underline_attrs:
                     attrs["color"] = base_underline_attrs["color"]
-                ET.SubElement(element, f"{_HH}underline", attrs)
+                LET.SubElement(element, f"{_HH}underline", attrs)
 
         element = header.ensure_char_property(
             predicate=predicate,

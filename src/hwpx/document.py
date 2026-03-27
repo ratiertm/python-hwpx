@@ -564,14 +564,27 @@ class HwpxDocument:
         bold: bool = False,
         italic: bool = False,
         underline: bool = False,
+        height: int | None = None,
+        text_color: str | None = None,
         base_char_pr_id: str | int | None = None,
     ) -> str:
-        """Return a ``charPr`` identifier matching the requested flags."""
+        """Return a ``charPr`` identifier matching the requested flags.
+
+        Args:
+            bold: Bold text.
+            italic: Italic text.
+            underline: Underlined text.
+            height: Font size in hwpunit (100 = 1pt, 1000 = 10pt, 2000 = 20pt).
+            text_color: Text color as #RRGGBB string.
+            base_char_pr_id: Base char property to clone from.
+        """
 
         return self._root.ensure_run_style(
             bold=bold,
             italic=italic,
             underline=underline,
+            height=height,
+            text_color=text_color,
             base_char_pr_id=base_char_pr_id,
         )
 
