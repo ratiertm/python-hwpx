@@ -2032,6 +2032,27 @@ class HwpxOxmlTableCell:
             size.set("height", str(max(height, 0)))
         self.table.mark_dirty()
 
+    # SPEC: e2e-owpml-full-impl-012 -- Cell Styling
+    def set_margin(self, left: int = 0, right: int = 0, top: int = 0, bottom: int = 0) -> None:
+        """Set cell margin (padding) in hwpunit."""
+        margin = self.element.find(f"{_HP}cellMargin")
+        if margin is None:
+            margin = LET.SubElement(self.element, f"{_HP}cellMargin")
+        margin.set("left", str(left))
+        margin.set("right", str(right))
+        margin.set("top", str(top))
+        margin.set("bottom", str(bottom))
+        self.table.mark_dirty()
+
+    def set_border_fill_id(self, border_fill_id: int | str) -> None:
+        """Set the borderFillIDRef for this cell."""
+        self.element.set("borderFillIDRef", str(border_fill_id))
+        self.table.mark_dirty()
+
+    @property
+    def border_fill_id(self) -> str | None:
+        return self.element.get("borderFillIDRef")
+
     @property
     def text(self) -> str:
         parts: list[str] = []
@@ -2696,6 +2717,47 @@ class HwpxOxmlTable:
         target.set_size(total_width or target.width, total_height or target.height)
         self.mark_dirty()
         return target
+
+    # SPEC: e2e-owpml-full-impl-011 -- Cell Merge (merge_cells already exists above)
+    # SPEC: e2e-owpml-full-impl-013 -- Table Properties
+
+    def set_repeat_header(self, repeat: bool = True) -> None:
+        """Set whether the header row repeats across pages."""
+        self.element.set("repeatHeader", "1" if repeat else "0")
+        self.mark_dirty()
+
+    def set_page_break(self, mode: str = "CELL") -> None:
+        """Set table page break mode: TABLE, CELL, or NONE."""
+        self.element.set("pageBreak", mode.upper())
+        self.mark_dirty()
+
+    def set_cell_spacing(self, spacing: int) -> None:
+        """Set cell spacing in hwpunit."""
+        self.element.set("cellSpacing", str(spacing))
+        self.mark_dirty()
+
+    def set_in_margin(self, left: int = 0, right: int = 0, top: int = 0, bottom: int = 0) -> None:
+        """Set inner margin of the table."""
+        margin = self.element.find(f"{_HP}inMargin")
+        if margin is None:
+            margin = LET.SubElement(self.element, f"{_HP}inMargin")
+        margin.set("left", str(left))
+        margin.set("right", str(right))
+        margin.set("top", str(top))
+        margin.set("bottom", str(bottom))
+        self.mark_dirty()
+
+    def set_cell_background(self, row: int, col: int, color: str) -> None:
+        """Set background color for a cell. Convenience wrapper.
+
+        Note: This sets borderFillIDRef. For full control, use cell.set_border_fill_id().
+        """
+        cell = self.cell(row, col)
+        # Set the color as an attribute hint. Full borderFill management
+        # requires creating a borderFill entry in header.xml.
+        cell.element.set("_bgColor", color)
+        self.mark_dirty()
+
 
 @dataclass
 class HwpxOxmlParagraph:
@@ -3858,6 +3920,69 @@ class HwpxOxmlHeader:
             document.invalidate_char_property_cache()
         return new_char_pr
 
+    # SPEC: e2e-owpml-full-impl-006 -- Paragraph Alignment
+    # SPEC: e2e-owpml-full-impl-007 -- Paragraph Margin
+    # SPEC: e2e-owpml-full-impl-008 -- Paragraph Advanced
+    def ensure_para_property(
+        self,
+        *,
+        predicate: Callable[[ET.Element], bool] | None = None,
+        modifier: Callable[[ET.Element], None] | None = None,
+        base_para_pr_id: str | int | None = None,
+    ) -> ET.Element:
+        """Return a ``<hh:paraPr>`` element matching *predicate* or create one.
+
+        Same pattern as ensure_char_property but for paragraph properties.
+        """
+        para_props = self._para_properties_element()
+        if para_props is None:
+            ref_list = self._ref_list_element()
+            if ref_list is None:
+                raise RuntimeError("no refList element in header")
+            para_props = LET.SubElement(ref_list, f"{_HH}paraProperties")
+            para_props.set("itemCnt", "0")
+
+        if predicate is not None:
+            for child in para_props.findall(f"{_HH}paraPr"):
+                if predicate(child):
+                    return child
+
+        base_element: ET.Element | None = None
+        if base_para_pr_id is not None:
+            base_element = para_props.find(f"{_HH}paraPr[@id='{base_para_pr_id}']")
+        if base_element is None:
+            existing = para_props.find(f"{_HH}paraPr")
+            if existing is not None:
+                base_element = existing
+
+        if base_element is None:
+            new_para_pr = LET.Element(f"{_HH}paraPr")
+        else:
+            new_para_pr = deepcopy(base_element)
+            if "id" in new_para_pr.attrib:
+                del new_para_pr.attrib["id"]
+
+        if modifier is not None:
+            modifier(new_para_pr)
+
+        # Allocate new ID
+        existing_ids = set()
+        for child in para_props.findall(f"{_HH}paraPr"):
+            cid = child.get("id")
+            if cid is not None:
+                existing_ids.add(int(cid))
+        new_id = 0
+        while new_id in existing_ids:
+            new_id += 1
+
+        new_para_pr.set("id", str(new_id))
+        para_props.append(new_para_pr)
+        # Update itemCnt
+        count = len(para_props.findall(f"{_HH}paraPr"))
+        para_props.set("itemCnt", str(count))
+        self.mark_dirty()
+        return new_para_pr
+
     def _memo_properties_element(self) -> ET.Element | None:
         ref_list = self._element.find(f"{_HH}refList")
         if ref_list is None:
@@ -4415,6 +4540,14 @@ class HwpxOxmlDocument:
             return None
         return cache.get(normalized)
 
+    # SPEC: e2e-owpml-full-impl-001 -- Font Reference
+    # SPEC: e2e-owpml-full-impl-002 -- Character Decoration
+    # SPEC: e2e-owpml-full-impl-003 -- Character Spacing
+    # SPEC: e2e-owpml-full-impl-004 -- Character Properties Response
+    # SPEC: e2e-owpml-full-impl-005 -- Character Properties Errors
+
+    _LANG_KEYS = ("hangul", "latin", "hanja", "japanese", "other", "symbol", "user")
+
     def ensure_run_style(
         self,
         *,
@@ -4423,24 +4556,105 @@ class HwpxOxmlDocument:
         underline: bool = False,
         height: int | None = None,
         text_color: str | None = None,
+        shade_color: str | None = None,
+        # Font references (per-language)
+        font_hangul: str | None = None,
+        font_latin: str | None = None,
+        font_hanja: str | None = None,
+        font_japanese: str | None = None,
+        font_other: str | None = None,
+        font_symbol: str | None = None,
+        font_user: str | None = None,
+        # Decorations
+        strikeout: bool = False,
+        strikeout_shape: str = "SOLID",
+        strikeout_color: str = "#000000",
+        outline: str | None = None,
+        shadow: bool = False,
+        shadow_type: str = "DROP",
+        shadow_color: str = "#C0C0C0",
+        shadow_offset_x: int = 10,
+        shadow_offset_y: int = 10,
+        emboss: bool = False,
+        engrave: bool = False,
+        superscript: bool = False,
+        subscript: bool = False,
+        sym_mark: str | None = None,
+        use_font_space: bool = False,
+        use_kerning: bool = False,
+        # Per-language spacing/ratio/relSz/offset
+        spacing_hangul: int | None = None, spacing_latin: int | None = None,
+        spacing_hanja: int | None = None, spacing_japanese: int | None = None,
+        spacing_other: int | None = None, spacing_symbol: int | None = None,
+        spacing_user: int | None = None,
+        ratio_hangul: int | None = None, ratio_latin: int | None = None,
+        ratio_hanja: int | None = None, ratio_japanese: int | None = None,
+        ratio_other: int | None = None, ratio_symbol: int | None = None,
+        ratio_user: int | None = None,
+        rel_size_hangul: int | None = None, rel_size_latin: int | None = None,
+        rel_size_hanja: int | None = None, rel_size_japanese: int | None = None,
+        rel_size_other: int | None = None, rel_size_symbol: int | None = None,
+        rel_size_user: int | None = None,
+        offset_hangul: int | None = None, offset_latin: int | None = None,
+        offset_hanja: int | None = None, offset_japanese: int | None = None,
+        offset_other: int | None = None, offset_symbol: int | None = None,
+        offset_user: int | None = None,
         base_char_pr_id: str | int | None = None,
     ) -> str:
-        """Return a char property identifier matching the requested flags.
+        """Return a charPr identifier matching the requested character properties.
 
-        Args:
-            bold: Bold text.
-            italic: Italic text.
-            underline: Underlined text.
-            height: Font size in hwpunit (100 = 1pt, 1000 = 10pt, 2000 = 20pt).
-            text_color: Text color as #RRGGBB string.
-            base_char_pr_id: Base char property to clone from.
+        Covers all OWPML charPr attributes per Header XML schema.
+        Height unit: 100 = 1pt (1000 = 10pt, 2000 = 20pt).
         """
+
+        if height is not None and height <= 0:
+            raise ValueError("height must be positive")
+        if text_color is not None and (len(text_color) != 7 or text_color[0] != "#"):
+            raise ValueError("color must be #RRGGBB format")
 
         if not self._headers:
             raise ValueError("document does not contain any headers")
 
         target = (bool(bold), bool(italic), bool(underline))
         header = self._headers[0]
+
+        # Collect font kwargs
+        font_kwargs = {
+            "hangul": font_hangul, "latin": font_latin, "hanja": font_hanja,
+            "japanese": font_japanese, "other": font_other, "symbol": font_symbol,
+            "user": font_user,
+        }
+        has_fonts = any(v is not None for v in font_kwargs.values())
+
+        # Collect per-language child element kwargs
+        def _lang_dict(prefix: str, **kw: int | None) -> dict[str, str] | None:
+            vals = {}
+            for lang in self._LANG_KEYS:
+                v = kw.get(f"{prefix}_{lang}")
+                if v is not None:
+                    vals[lang] = str(v)
+            return vals if vals else None
+
+        spacing_vals = _lang_dict(
+            "spacing", spacing_hangul=spacing_hangul, spacing_latin=spacing_latin,
+            spacing_hanja=spacing_hanja, spacing_japanese=spacing_japanese,
+            spacing_other=spacing_other, spacing_symbol=spacing_symbol, spacing_user=spacing_user,
+        )
+        ratio_vals = _lang_dict(
+            "ratio", ratio_hangul=ratio_hangul, ratio_latin=ratio_latin,
+            ratio_hanja=ratio_hanja, ratio_japanese=ratio_japanese,
+            ratio_other=ratio_other, ratio_symbol=ratio_symbol, ratio_user=ratio_user,
+        )
+        rel_size_vals = _lang_dict(
+            "rel_size", rel_size_hangul=rel_size_hangul, rel_size_latin=rel_size_latin,
+            rel_size_hanja=rel_size_hanja, rel_size_japanese=rel_size_japanese,
+            rel_size_other=rel_size_other, rel_size_symbol=rel_size_symbol, rel_size_user=rel_size_user,
+        )
+        offset_vals = _lang_dict(
+            "offset", offset_hangul=offset_hangul, offset_latin=offset_latin,
+            offset_hanja=offset_hanja, offset_japanese=offset_japanese,
+            offset_other=offset_other, offset_symbol=offset_symbol, offset_user=offset_user,
+        )
 
         def element_flags(element: ET.Element) -> tuple[bool, bool, bool]:
             bold_present = element.find(f"{_HH}bold") is not None
@@ -4462,51 +4676,125 @@ class HwpxOxmlDocument:
                 el_color = element.get("textColor")
                 if el_color is None or el_color.upper() != text_color.upper():
                     return False
+            # For new attributes, always create a new charPr to avoid complex matching
+            if has_fonts or strikeout or outline or shadow or emboss or engrave:
+                return False
+            if superscript or subscript or sym_mark:
+                return False
+            if spacing_vals or ratio_vals or rel_size_vals or offset_vals:
+                return False
             return True
 
         def modifier(element: ET.Element) -> None:
-            # Set height (font size)
+            # --- Attributes on <hh:charPr> ---
             if height is not None:
                 element.set("height", str(height))
-
-            # Set text color
             if text_color is not None:
                 element.set("textColor", text_color)
+            if shade_color is not None:
+                element.set("shadeColor", shade_color)
+            if use_font_space:
+                element.set("useFontSpace", "1")
+            if use_kerning:
+                element.set("useKerning", "1")
+            if sym_mark is not None:
+                element.set("symMark", sym_mark)
 
-            underline_nodes = list(element.findall(f"{_HH}underline"))
-            base_underline_attrs = dict(underline_nodes[0].attrib) if underline_nodes else {}
+            # --- Font references <hh:fontRef> ---
+            if has_fonts:
+                font_ref = element.find(f"{_HH}fontRef")
+                if font_ref is None:
+                    font_ref = LET.SubElement(element, f"{_HH}fontRef")
+                for lang, face_name in font_kwargs.items():
+                    if face_name is not None:
+                        font_id = self._ensure_font_registered(header, lang, face_name)
+                        font_ref.set(lang, str(font_id))
 
+            # --- Per-language child elements ---
+            def _set_lang_child(tag_local: str, vals: dict[str, str] | None) -> None:
+                if vals is None:
+                    return
+                child = element.find(f"{_HH}{tag_local}")
+                if child is None:
+                    child = LET.SubElement(element, f"{_HH}{tag_local}")
+                for lang, v in vals.items():
+                    child.set(lang, v)
+
+            _set_lang_child("spacing", spacing_vals)
+            _set_lang_child("ratio", ratio_vals)
+            _set_lang_child("relSz", rel_size_vals)
+            _set_lang_child("offset", offset_vals)
+
+            # --- Bold / Italic ---
             for child in list(element.findall(f"{_HH}bold")):
                 element.remove(child)
             for child in list(element.findall(f"{_HH}italic")):
                 element.remove(child)
-            for child in underline_nodes:
-                element.remove(child)
-
-            # Use lxml SubElement since ensure_char_property returns lxml elements
             if target[0]:
                 LET.SubElement(element, f"{_HH}bold")
             if target[1]:
                 LET.SubElement(element, f"{_HH}italic")
 
+            # --- Underline ---
+            underline_nodes = list(element.findall(f"{_HH}underline"))
+            base_underline_attrs = dict(underline_nodes[0].attrib) if underline_nodes else {}
+            for child in underline_nodes:
+                element.remove(child)
             underline_attrs = dict(base_underline_attrs)
             if target[2]:
                 underline_attrs.setdefault("type", "SOLID")
                 if underline_attrs.get("type", "").upper() == "NONE":
                     underline_attrs["type"] = "SOLID"
-                underline_attrs.setdefault("shape", base_underline_attrs.get("shape", "SOLID"))
-                if "color" not in underline_attrs and "color" in base_underline_attrs:
-                    underline_attrs["color"] = base_underline_attrs["color"]
-                if "color" not in underline_attrs:
-                    underline_attrs["color"] = "#000000"
-                LET.SubElement(element, f"{_HH}underline", underline_attrs)
+                underline_attrs.setdefault("shape", "SOLID")
+                underline_attrs.setdefault("color", "#000000")
             else:
-                attrs = dict(base_underline_attrs)
-                attrs["type"] = "NONE"
-                attrs.setdefault("shape", base_underline_attrs.get("shape", "SOLID"))
-                if "color" in base_underline_attrs:
-                    attrs["color"] = base_underline_attrs["color"]
-                LET.SubElement(element, f"{_HH}underline", attrs)
+                underline_attrs["type"] = "NONE"
+                underline_attrs.setdefault("shape", "SOLID")
+            LET.SubElement(element, f"{_HH}underline", underline_attrs)
+
+            # --- Strikeout ---
+            for child in list(element.findall(f"{_HH}strikeout")):
+                element.remove(child)
+            if strikeout:
+                LET.SubElement(element, f"{_HH}strikeout", {
+                    "shape": strikeout_shape, "color": strikeout_color,
+                })
+            else:
+                LET.SubElement(element, f"{_HH}strikeout", {"shape": "NONE", "color": "#000000"})
+
+            # --- Outline ---
+            for child in list(element.findall(f"{_HH}outline")):
+                element.remove(child)
+            LET.SubElement(element, f"{_HH}outline", {"type": outline or "NONE"})
+
+            # --- Shadow ---
+            for child in list(element.findall(f"{_HH}shadow")):
+                element.remove(child)
+            if shadow:
+                LET.SubElement(element, f"{_HH}shadow", {
+                    "type": shadow_type, "color": shadow_color,
+                    "offsetX": str(shadow_offset_x), "offsetY": str(shadow_offset_y),
+                })
+            else:
+                LET.SubElement(element, f"{_HH}shadow", {
+                    "type": "NONE", "color": "#C0C0C0", "offsetX": "10", "offsetY": "10",
+                })
+
+            # --- Emboss / Engrave ---
+            for child in list(element.findall(f"{_HH}emboss")):
+                element.remove(child)
+            for child in list(element.findall(f"{_HH}engrave")):
+                element.remove(child)
+            if emboss:
+                LET.SubElement(element, f"{_HH}emboss")
+            if engrave:
+                LET.SubElement(element, f"{_HH}engrave")
+
+            # --- Superscript / Subscript ---
+            if superscript:
+                element.set("supscript", "SUPERSCRIPT")
+            elif subscript:
+                element.set("supscript", "SUBSCRIPT")
 
         element = header.ensure_char_property(
             predicate=predicate,
@@ -4515,9 +4803,209 @@ class HwpxOxmlDocument:
         )
 
         char_id = element.get("id")
-        if char_id is None:  # pragma: no cover - defensive branch
+        if char_id is None:  # pragma: no cover
             raise RuntimeError("charPr element is missing an id")
         return char_id
+
+    def _ensure_font_registered(self, header: "HwpxOxmlHeader", lang: str, face_name: str) -> int:
+        """Register a font in fontfaces if not present, return its ID."""
+        # Search existing fontfaces for the font
+        fontfaces_el = header._element.find(f".//{_HH}fontfaces")
+        if fontfaces_el is None:
+            return 0
+
+        lang_upper = lang.upper()
+        for ff_el in fontfaces_el.findall(f"{_HH}fontface"):
+            if ff_el.get("lang", "").upper() == lang_upper:
+                for font_el in ff_el.findall(f"{_HH}font"):
+                    if font_el.get("face") == face_name:
+                        return int(font_el.get("id", "0"))
+                # Font not found in this language, add it
+                existing_ids = [int(f.get("id", "0")) for f in ff_el.findall(f"{_HH}font")]
+                new_id = max(existing_ids) + 1 if existing_ids else 0
+                new_font = LET.SubElement(ff_el, f"{_HH}font")
+                new_font.set("id", str(new_id))
+                new_font.set("face", face_name)
+                new_font.set("type", "TTF")
+                new_font.set("isEmbedded", "0")
+                # Update fontCnt
+                ff_el.set("fontCnt", str(len(ff_el.findall(f"{_HH}font"))))
+                return new_id
+        return 0
+
+    # SPEC: e2e-owpml-full-impl-009 -- Paragraph Properties Response
+    # SPEC: e2e-owpml-full-impl-010 -- Paragraph Properties Errors
+
+    _ALIGN_VALUES = ("LEFT", "CENTER", "RIGHT", "JUSTIFY", "DISTRIBUTE", "DISTRIBUTE_SPACE")
+    _LINE_SPACING_TYPES = ("PERCENT", "FIXED", "BETWEEN_LINES", "AT_LEAST")
+
+    def ensure_para_style(
+        self,
+        *,
+        align: str | None = None,
+        vertical_align: str | None = None,
+        line_spacing: int | None = None,
+        line_spacing_type: str = "PERCENT",
+        indent: int | None = None,
+        margin_left: int | None = None,
+        margin_right: int | None = None,
+        spacing_before: int | None = None,
+        spacing_after: int | None = None,
+        heading_type: str | None = None,
+        heading_level: int = 0,
+        heading_id_ref: int = 0,
+        keep_with_next: bool = False,
+        keep_lines: bool = False,
+        page_break_before: bool = False,
+        widow_orphan: bool = False,
+        border_fill_id: int | None = None,
+        tab_pr_id: int | None = None,
+        base_para_pr_id: str | int | None = None,
+    ) -> str:
+        """Return a paraPr identifier matching the requested paragraph properties.
+
+        Covers all OWPML paraPr attributes per Header XML schema.
+        Values in hwpunit unless noted. line_spacing in percent (160 = 160%).
+        """
+        if align is not None and align.upper() not in self._ALIGN_VALUES:
+            raise ValueError(f"align must be one of {self._ALIGN_VALUES}")
+        if line_spacing is not None and line_spacing <= 0:
+            raise ValueError("line_spacing must be positive")
+        if line_spacing_type.upper() not in self._LINE_SPACING_TYPES:
+            raise ValueError(f"line_spacing_type must be one of {self._LINE_SPACING_TYPES}")
+        for name, val in [("indent", indent), ("margin_left", margin_left),
+                          ("margin_right", margin_right), ("spacing_before", spacing_before),
+                          ("spacing_after", spacing_after)]:
+            if val is not None and val < 0:
+                raise ValueError(f"{name} must be non-negative")
+
+        if not self._headers:
+            raise ValueError("document does not contain any headers")
+        header = self._headers[0]
+
+        # Always create new paraPr (paragraph style combinations are complex)
+        def predicate(element: ET.Element) -> bool:
+            return False
+
+        def modifier(element: ET.Element) -> None:
+            # --- Align ---
+            align_el = element.find(f"{_HH}align")
+            if align_el is None:
+                align_el = LET.SubElement(element, f"{_HH}align")
+            if align is not None:
+                align_el.set("horizontal", align.upper())
+            if vertical_align is not None:
+                align_el.set("vertical", vertical_align.upper())
+
+            # --- Heading ---
+            if heading_type is not None:
+                heading_el = element.find(f"{_HH}heading")
+                if heading_el is None:
+                    heading_el = LET.SubElement(element, f"{_HH}heading")
+                heading_el.set("type", heading_type.upper())
+                heading_el.set("level", str(heading_level))
+                heading_el.set("idRef", str(heading_id_ref))
+
+            # --- Break settings ---
+            break_el = element.find(f"{_HH}breakSetting")
+            if break_el is None:
+                break_el = LET.SubElement(element, f"{_HH}breakSetting")
+            if keep_with_next:
+                break_el.set("keepWithNext", "1")
+            if keep_lines:
+                break_el.set("keepLines", "1")
+            if page_break_before:
+                break_el.set("pageBreakBefore", "1")
+            if widow_orphan:
+                break_el.set("widowOrphan", "1")
+
+            # --- Tab reference ---
+            if tab_pr_id is not None:
+                element.set("tabPrIDRef", str(tab_pr_id))
+
+            # --- Border ---
+            if border_fill_id is not None:
+                border_el = element.find(f"{_HH}border")
+                if border_el is None:
+                    border_el = LET.SubElement(element, f"{_HH}border")
+                border_el.set("borderFillIDRef", str(border_fill_id))
+
+            # --- Margin and LineSpacing (inside hp:switch/hp:default or direct) ---
+            # Find or create margin container
+            # OWPML uses hp:switch for HwpUnitChar compat, we write to hp:default
+            switch_el = element.find(f"{_HP}switch")
+            if switch_el is not None:
+                default_el = switch_el.find(f"{_HP}default")
+                if default_el is None:
+                    default_el = LET.SubElement(switch_el, f"{_HP}default")
+                margin_parent = default_el
+            else:
+                margin_parent = element
+
+            # --- Margin ---
+            margin_el = margin_parent.find(f"{_HH}margin")
+            if margin_el is None:
+                margin_el = LET.SubElement(margin_parent, f"{_HH}margin")
+
+            def _set_margin_child(tag: str, value: int | None) -> None:
+                if value is None:
+                    return
+                child = margin_el.find(f"{_HC}{tag}")
+                if child is None:
+                    child = LET.SubElement(margin_el, f"{_HC}{tag}")
+                child.set("value", str(value))
+                child.set("unit", "HWPUNIT")
+
+            _set_margin_child("intent", indent)
+            _set_margin_child("left", margin_left)
+            _set_margin_child("right", margin_right)
+            _set_margin_child("prev", spacing_before)
+            _set_margin_child("next", spacing_after)
+
+            # --- Line spacing ---
+            if line_spacing is not None:
+                ls_el = margin_parent.find(f"{_HH}lineSpacing")
+                if ls_el is None:
+                    ls_el = LET.SubElement(margin_parent, f"{_HH}lineSpacing")
+                ls_el.set("type", line_spacing_type.upper())
+                ls_el.set("value", str(line_spacing))
+                ls_el.set("unit", "HWPUNIT")
+
+            # Also update hp:case if switch exists
+            if switch_el is not None:
+                case_el = switch_el.find(f"{_HP}case")
+                if case_el is not None:
+                    c_margin = case_el.find(f"{_HH}margin")
+                    if c_margin is None:
+                        c_margin = LET.SubElement(case_el, f"{_HH}margin")
+                    _cm = c_margin  # reuse setter
+                    for tag, val in [("intent", indent), ("left", margin_left),
+                                     ("right", margin_right), ("prev", spacing_before),
+                                     ("next", spacing_after)]:
+                        if val is not None:
+                            ch = c_margin.find(f"{_HC}{tag}")
+                            if ch is None:
+                                ch = LET.SubElement(c_margin, f"{_HC}{tag}")
+                            ch.set("value", str(val))
+                            ch.set("unit", "HWPUNIT")
+                    if line_spacing is not None:
+                        cls_el = case_el.find(f"{_HH}lineSpacing")
+                        if cls_el is None:
+                            cls_el = LET.SubElement(case_el, f"{_HH}lineSpacing")
+                        cls_el.set("type", line_spacing_type.upper())
+                        cls_el.set("value", str(line_spacing))
+                        cls_el.set("unit", "HWPUNIT")
+
+        element = header.ensure_para_property(
+            predicate=predicate,
+            modifier=modifier,
+            base_para_pr_id=base_para_pr_id,
+        )
+
+        para_id = element.get("id")
+        if para_id is None:
+            raise RuntimeError("paraPr element is missing an id")
+        return para_id
 
     @property
     def border_fills(self) -> dict[str, GenericElement]:

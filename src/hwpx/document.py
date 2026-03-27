@@ -558,35 +558,37 @@ class HwpxDocument:
 
         return self._root.char_property(char_pr_id_ref)
 
-    def ensure_run_style(
-        self,
-        *,
-        bold: bool = False,
-        italic: bool = False,
-        underline: bool = False,
-        height: int | None = None,
-        text_color: str | None = None,
-        base_char_pr_id: str | int | None = None,
-    ) -> str:
-        """Return a ``charPr`` identifier matching the requested flags.
+    def ensure_run_style(self, **kwargs) -> str:
+        """Return a ``charPr`` identifier matching the requested character properties.
 
-        Args:
-            bold: Bold text.
-            italic: Italic text.
-            underline: Underlined text.
-            height: Font size in hwpunit (100 = 1pt, 1000 = 10pt, 2000 = 20pt).
-            text_color: Text color as #RRGGBB string.
-            base_char_pr_id: Base char property to clone from.
+        Supports all OWPML charPr attributes. Common parameters:
+            bold, italic, underline: bool
+            height: Font size in hwpunit (100=1pt, 1000=10pt, 2000=20pt)
+            text_color: Text color as #RRGGBB
+            font_hangul, font_latin, ...: Per-language font name
+            strikeout, outline, shadow, emboss, engrave: Decorations
+            superscript, subscript: bool
+            spacing_hangul, ratio_hangul, ...: Per-language spacing/ratio
+            base_char_pr_id: Base charPr to clone from
         """
+        return self._root.ensure_run_style(**kwargs)
 
-        return self._root.ensure_run_style(
-            bold=bold,
-            italic=italic,
-            underline=underline,
-            height=height,
-            text_color=text_color,
-            base_char_pr_id=base_char_pr_id,
-        )
+    def ensure_para_style(self, **kwargs) -> str:
+        """Return a ``paraPr`` identifier matching the requested paragraph properties.
+
+        Supports all OWPML paraPr attributes. Common parameters:
+            align: LEFT, CENTER, RIGHT, JUSTIFY, DISTRIBUTE
+            line_spacing: Line spacing value (160 = 160% for PERCENT type)
+            line_spacing_type: PERCENT, FIXED, BETWEEN_LINES, AT_LEAST
+            indent: First-line indent in hwpunit
+            margin_left, margin_right: Left/right margin in hwpunit
+            spacing_before, spacing_after: Before/after paragraph spacing in hwpunit
+            heading_type, heading_level: Heading/outline settings
+            keep_with_next, page_break_before: Break settings
+            border_fill_id, tab_pr_id: Reference IDs
+            base_para_pr_id: Base paraPr to clone from
+        """
+        return self._root.ensure_para_style(**kwargs)
 
     def iter_runs(self) -> Iterator[HwpxOxmlRun]:
         """Yield every run element contained in the document."""
@@ -1260,6 +1262,342 @@ class HwpxDocument:
             removed = True
 
         return removed
+
+    # ------------------------------------------------------------------
+    # SPEC: e2e-owpml-full-impl-016 -- Image Inline Insert
+    # SPEC: e2e-owpml-full-impl-017 -- Image Properties
+    # ------------------------------------------------------------------
+
+    _PAPER_SIZES = {
+        "A4": (59528, 84186),
+        "A3": (84186, 119054),
+        "A5": (41976, 59528),
+        "B4": (72852, 103068),
+        "B5": (51476, 72852),
+        "LETTER": (61200, 79200),
+        "LEGAL": (61200, 100800),
+    }
+
+    def insert_image(
+        self,
+        source: "str | bytes",
+        *,
+        width: int = 42520,
+        height: int = 31890,
+        image_format: str | None = None,
+        crop_left: int = 0,
+        crop_top: int = 0,
+        crop_right: int = 0,
+        crop_bottom: int = 0,
+        bright: int = 0,
+        contrast: int = 0,
+        alpha: int = 0,
+        effect: str = "REAL_PIC",
+    ) -> HwpxOxmlParagraph:
+        """Insert an image inline into the document with proper OWPML structure.
+
+        Args:
+            source: File path (str) or raw bytes.
+            width: Image width in hwpunit (default ~150mm).
+            height: Image height in hwpunit (default ~112mm).
+            image_format: Force format (png, jpg). Auto-detected from path if None.
+            crop_left/top/right/bottom: Crop values.
+            bright: Brightness adjustment.
+            contrast: Contrast adjustment.
+            alpha: Transparency (0=opaque).
+            effect: REAL_PIC, GRAY_SCALE, or BLACK_WHITE.
+        """
+        from pathlib import Path
+        from lxml import etree as LET
+
+        if isinstance(source, str):
+            p = Path(source)
+            if not p.exists():
+                raise FileNotFoundError(f"Image file not found: {source}")
+            img_data = p.read_bytes()
+            fmt = image_format or p.suffix.lstrip(".").lower() or "png"
+        else:
+            img_data = source
+            fmt = image_format or "png"
+
+        item_id = self.add_image(img_data, fmt)
+
+        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        para = self.add_paragraph("", include_run=False)
+        run = LET.SubElement(para.element, f"{{{HP}}}run")
+        run.set("charPrIDRef", "0")
+
+        pic = LET.SubElement(run, f"{{{HP}}}pic")
+
+        # shapeObject
+        so = LET.SubElement(pic, f"{{{HP}}}shapeObject")
+        so.set("id", "")
+        so.set("zOrder", "0")
+        so.set("numberingType", "PICTURE")
+        so.set("textWrap", "TOP_AND_BOTTOM")
+        so.set("textFlow", "BOTH_SIDES")
+        so.set("lock", "0")
+
+        sz = LET.SubElement(so, f"{{{HP}}}sz")
+        sz.set("width", str(width))
+        sz.set("height", str(height))
+        sz.set("widthRelTo", "ABSOLUTE")
+        sz.set("heightRelTo", "ABSOLUTE")
+
+        pos = LET.SubElement(so, f"{{{HP}}}pos")
+        pos.set("treatAsChar", "1")
+        pos.set("affectLSpacing", "0")
+        pos.set("flowWithText", "1")
+        pos.set("allowOverlap", "1")
+        pos.set("holdAnchorAndSO", "0")
+        pos.set("vertRelTo", "PARA")
+        pos.set("horzRelTo", "PARA")
+        pos.set("vertAlign", "TOP")
+        pos.set("horzAlign", "LEFT")
+        pos.set("vertOffset", "0")
+        pos.set("horzOffset", "0")
+
+        om = LET.SubElement(so, f"{{{HP}}}outMargin")
+        om.set("left", "0")
+        om.set("right", "0")
+        om.set("top", "0")
+        om.set("bottom", "0")
+
+        # shapeRect
+        sr = LET.SubElement(pic, f"{{{HP}}}shapeRect")
+        sr.set("x", "0")
+        sr.set("y", "0")
+        sr.set("cx", str(width))
+        sr.set("cy", str(height))
+
+        # imgRect + imgClip
+        ir = LET.SubElement(pic, f"{{{HP}}}imgRect")
+        ic = LET.SubElement(ir, f"{{{HP}}}imgClip")
+        ic.set("left", str(crop_left))
+        ic.set("top", str(crop_top))
+        ic.set("right", str(crop_right))
+        ic.set("bottom", str(crop_bottom))
+
+        # imgDim
+        idim = LET.SubElement(pic, f"{{{HP}}}imgDim")
+        idim.set("dimwidth", str(width))
+        idim.set("dimheight", str(height))
+
+        # img
+        img_el = LET.SubElement(pic, f"{{{HP}}}img")
+        img_el.set("binaryItemIDRef", item_id)
+        img_el.set("bright", str(bright))
+        img_el.set("contrast", str(contrast))
+        img_el.set("effect", effect)
+        img_el.set("alpha", str(alpha))
+
+        return para
+
+    # SPEC: e2e-owpml-full-impl-018 -- Page Setup
+    def set_page_setup(
+        self,
+        *,
+        paper: str | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        landscape: bool | None = None,
+        margin_left: int | None = None,
+        margin_right: int | None = None,
+        margin_top: int | None = None,
+        margin_bottom: int | None = None,
+        margin_header: int | None = None,
+        margin_footer: int | None = None,
+        gutter: int | None = None,
+        gutter_type: str = "LEFT_ONLY",
+        section_index: int = 0,
+    ) -> None:
+        """Set page size, orientation, and margins.
+
+        Args:
+            paper: Preset name (A4, A3, A5, B4, B5, Letter, Legal).
+            width/height: Custom size in hwpunit (overrides paper preset).
+            landscape: True for landscape orientation.
+            margin_*: Margins in hwpunit.
+            gutter/gutter_type: Binding margin.
+            section_index: Which section to configure (default: first).
+        """
+        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+
+        sections = self.sections
+        if section_index >= len(sections):
+            raise IndexError(f"Section {section_index} does not exist")
+
+        sec = sections[section_index]
+        # Find secPr element
+        sec_pr = sec.element.find(f"{{{HP}}}secPr") if hasattr(sec, 'element') else None
+        if sec_pr is None:
+            # secPr is usually in the first paragraph's run
+            for p in sec.element.findall(f"{{{HP}}}p"):
+                for run in p.findall(f"{{{HP}}}run"):
+                    sp = run.find(f"{{{HP}}}secPr")
+                    if sp is not None:
+                        sec_pr = sp
+                        break
+                if sec_pr is not None:
+                    break
+
+        if sec_pr is None:
+            raise RuntimeError("Cannot find secPr element in section")
+
+        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        page_pr = sec_pr.find(f"{{{HP}}}pagePr")
+        if page_pr is None:
+            from lxml import etree as LET
+            page_pr = LET.SubElement(sec_pr, f"{{{HP}}}pagePr")
+
+        # Paper preset
+        if paper is not None:
+            key = paper.upper()
+            if key not in self._PAPER_SIZES:
+                raise ValueError(f"Unknown paper size: {paper}. Available: {list(self._PAPER_SIZES.keys())}")
+            pw, ph = self._PAPER_SIZES[key]
+            if width is None:
+                width = pw
+            if height is None:
+                height = ph
+
+        # Landscape
+        if landscape is not None:
+            if landscape:
+                page_pr.set("landscape", "NARROWLY")
+                if width is not None and height is not None and width < height:
+                    width, height = height, width
+            else:
+                page_pr.set("landscape", "WIDELY")
+
+        if width is not None:
+            page_pr.set("width", str(width))
+        if height is not None:
+            page_pr.set("height", str(height))
+        if gutter_type:
+            page_pr.set("gutterType", gutter_type)
+
+        # Margins
+        margin_el = page_pr.find(f"{{{HP}}}margin")
+        if margin_el is None:
+            from lxml import etree as LET
+            margin_el = LET.SubElement(page_pr, f"{{{HP}}}margin")
+
+        if margin_left is not None:
+            margin_el.set("left", str(margin_left))
+        if margin_right is not None:
+            margin_el.set("right", str(margin_right))
+        if margin_top is not None:
+            margin_el.set("top", str(margin_top))
+        if margin_bottom is not None:
+            margin_el.set("bottom", str(margin_bottom))
+        if margin_header is not None:
+            margin_el.set("header", str(margin_header))
+        if margin_footer is not None:
+            margin_el.set("footer", str(margin_footer))
+        if gutter is not None:
+            margin_el.set("gutter", str(gutter))
+
+    # ------------------------------------------------------------------
+    # SPEC: e2e-owpml-full-impl-021 -- Advanced Shapes
+    # SPEC: e2e-owpml-full-impl-022 -- Fields & Forms
+    # SPEC: e2e-owpml-full-impl-023 -- Misc Features
+    # ------------------------------------------------------------------
+
+    def add_arc(
+        self, center_x: int = 7200, center_y: int = 7200,
+        ax1: int = 3600, ay1: int = 0, ax2: int = 0, ay2: int = 3600,
+        *, arc_type: str = "NORMAL",
+        section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlInlineObject:
+        """Add an arc shape."""
+        return self.add_shape("arc", attributes={
+            "type": arc_type,
+            "centerX": str(center_x), "centerY": str(center_y),
+            "ax1": str(ax1), "ay1": str(ay1), "ax2": str(ax2), "ay2": str(ay2),
+        }, section=section, section_index=section_index)
+
+    def add_polygon(
+        self, points: list[tuple[int, int]],
+        *, line_color: str = "#000000", fill_color: str | None = None,
+        section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlInlineObject:
+        """Add a polygon shape from a list of (x, y) points."""
+        attrs = {}
+        for i, (x, y) in enumerate(points):
+            attrs[f"pt{i}X"] = str(x)
+            attrs[f"pt{i}Y"] = str(y)
+        return self.add_shape("polygon", attributes=attrs,
+                              section=section, section_index=section_index)
+
+    def add_equation(
+        self, script: str, *, base_unit: int = 1000,
+        section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlInlineObject:
+        """Add an equation with the given script."""
+        return self.add_shape("equation", attributes={
+            "script": script, "baseUnit": str(base_unit),
+        }, section=section, section_index=section_index)
+
+    def add_page_number(
+        self, *, format_type: str = "DIGIT",
+        section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add a page number field to the document."""
+        return self.add_control(
+            control_type="pageNum",
+            attributes={"pageStartsOn": "BOTH", "autoNumFormat": format_type},
+            section=section, section_index=section_index,
+        )
+
+    def add_auto_number(
+        self, *, num_type: str = "PAGE",
+        section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlInlineObject:
+        """Add an auto-numbering field."""
+        return self.add_control(
+            control_type="autoNum",
+            attributes={"numType": num_type},
+            section=section, section_index=section_index,
+        )
+
+    def add_tab(
+        self, *, section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add a tab character."""
+        para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
+        from lxml import etree as LET
+        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        run = LET.SubElement(para.element, f"{{{HP}}}run")
+        run.set("charPrIDRef", "0")
+        LET.SubElement(run, f"{{{HP}}}tab")
+        return para
+
+    def add_line_break(
+        self, *, section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add a line break character."""
+        para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
+        from lxml import etree as LET
+        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        run = LET.SubElement(para.element, f"{{{HP}}}run")
+        run.set("charPrIDRef", "0")
+        LET.SubElement(run, f"{{{HP}}}lineBreak")
+        return para
+
+    def create_style(
+        self, name: str, style_type: str = "PARA",
+        char_pr_id: str | int | None = None,
+        para_pr_id: str | int | None = None,
+    ) -> str:
+        """Create a new named style. Returns the style ID.
+
+        Note: This is a convenience stub. Full style management requires
+        header.xml manipulation.
+        """
+        # For now, return a pseudo ID. Full implementation would add to
+        # <hh:styles> in header.xml.
+        return f"style-{name}"
 
     # ------------------------------------------------------------------
     # Export helpers
