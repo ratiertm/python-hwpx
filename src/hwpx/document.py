@@ -1540,26 +1540,48 @@ class HwpxDocument:
         }, section=section, section_index=section_index)
 
     def add_page_number(
-        self, *, format_type: str = "DIGIT",
+        self, *, pos: str = "NONE",
+        format_type: str = "DIGIT",
         section: HwpxOxmlSection | None = None, section_index: int | None = None,
     ) -> HwpxOxmlParagraph:
-        """Add a page number field to the document."""
-        return self.add_control(
-            control_type="pageNum",
-            attributes={"pageStartsOn": "BOTH", "autoNumFormat": format_type},
-            section=section, section_index=section_index,
-        )
+        """Add a page number inline element per OWPML spec.
+
+        This inserts <hp:pageNum> inside a run, which renders as the current
+        page number when opened in Hancom Office.
+
+        Args:
+            pos: Position hint (NONE, TOP_LEFT, BOTTOM_CENTER, etc.)
+            format_type: Number format (DIGIT, CIRCLE, ROMAN_CAPITAL, etc.)
+        """
+        from lxml import etree as LET
+        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
+        run = LET.SubElement(para.element, f"{{{HP}}}run")
+        run.set("charPrIDRef", "0")
+        page_num = LET.SubElement(run, f"{{{HP}}}pageNum")
+        page_num.set("pos", pos)
+        page_num.set("formatType", format_type)
+        return para
 
     def add_auto_number(
         self, *, num_type: str = "PAGE",
         section: HwpxOxmlSection | None = None, section_index: int | None = None,
-    ) -> HwpxOxmlInlineObject:
-        """Add an auto-numbering field."""
-        return self.add_control(
-            control_type="autoNum",
-            attributes={"numType": num_type},
-            section=section, section_index=section_index,
-        )
+    ) -> HwpxOxmlParagraph:
+        """Add an auto-numbering inline element per OWPML spec.
+
+        This inserts <hp:autoNum> inside a run.
+
+        Args:
+            num_type: AUTO_NUM type (PAGE, FOOTNOTE, ENDNOTE, PICTURE, TABLE, EQUATION)
+        """
+        from lxml import etree as LET
+        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
+        run = LET.SubElement(para.element, f"{{{HP}}}run")
+        run.set("charPrIDRef", "0")
+        auto_num = LET.SubElement(run, f"{{{HP}}}autoNum")
+        auto_num.set("numType", num_type)
+        return para
 
     def add_tab(
         self, *, section: HwpxOxmlSection | None = None, section_index: int | None = None,
@@ -1585,19 +1607,26 @@ class HwpxDocument:
         LET.SubElement(run, f"{{{HP}}}lineBreak")
         return para
 
+    # SPEC: e2e-phase2-006 -- create_style
+    # SPEC: e2e-phase2-007 -- create_style Connection
     def create_style(
         self, name: str, style_type: str = "PARA",
         char_pr_id: str | int | None = None,
         para_pr_id: str | int | None = None,
     ) -> str:
-        """Create a new named style. Returns the style ID.
+        """Create a named style in header.xml. Returns the style ID.
 
-        Note: This is a convenience stub. Full style management requires
-        header.xml manipulation.
+        If a style with the same name exists, returns its existing ID.
         """
-        # For now, return a pseudo ID. Full implementation would add to
-        # <hh:styles> in header.xml.
-        return f"style-{name}"
+        if not self._root.headers:
+            raise ValueError("document has no headers")
+        header = self._root.headers[0]
+        return header.ensure_style(
+            name=name,
+            style_type=style_type,
+            char_pr_id_ref=char_pr_id,
+            para_pr_id_ref=para_pr_id,
+        )
 
     # ------------------------------------------------------------------
     # Export helpers

@@ -3163,7 +3163,9 @@ class HwpxOxmlParagraph:
             run_attributes,
             char_pr_id_ref=char_pr_id_ref,
         )
-        element = ET.SubElement(run, f"{_HP}ctrl", attrs)
+        # SPEC: e2e-phase2-001 -- add_control lxml fix
+        # Use LET (lxml) since _create_run_for_object returns lxml elements
+        element = LET.SubElement(run, f"{_HP}ctrl", attrs)
         self.section.mark_dirty()
         return HwpxOxmlInlineObject(element, self)
 
@@ -4233,6 +4235,61 @@ class HwpxOxmlHeader:
 
     def style(self, style_id_ref: int | str | None) -> Style | None:
         return self._lookup_by_id(self.styles, style_id_ref)
+
+    # SPEC: e2e-phase2-006 -- create_style
+    # SPEC: e2e-phase2-008 -- create_style Processing
+    def ensure_style(
+        self,
+        name: str,
+        style_type: str = "PARA",
+        char_pr_id_ref: str | int | None = None,
+        para_pr_id_ref: str | int | None = None,
+    ) -> str:
+        """Create a named style in header.xml and return its ID.
+
+        If a style with the same name already exists, returns its ID.
+        """
+        styles_el = self._styles_element()
+        if styles_el is None:
+            ref_list = self._ref_list_element()
+            if ref_list is None:
+                raise RuntimeError("no refList in header")
+            styles_el = LET.SubElement(ref_list, f"{_HH}styles")
+            styles_el.set("itemCnt", "0")
+
+        # Check for existing style with same name
+        for s in styles_el.findall(f"{_HH}style"):
+            if s.get("name") == name:
+                return s.get("id", "0")
+
+        # Allocate new ID
+        existing_ids = set()
+        for s in styles_el.findall(f"{_HH}style"):
+            sid = s.get("id")
+            if sid is not None:
+                existing_ids.add(int(sid))
+        new_id = 0
+        while new_id in existing_ids:
+            new_id += 1
+
+        # Create style element
+        attrs = {
+            "id": str(new_id),
+            "type": style_type.upper(),
+            "name": name,
+        }
+        if char_pr_id_ref is not None:
+            attrs["charPrIDRef"] = str(char_pr_id_ref)
+        if para_pr_id_ref is not None:
+            attrs["paraPrIDRef"] = str(para_pr_id_ref)
+
+        LET.SubElement(styles_el, f"{_HH}style", attrs)
+
+        # Update itemCnt
+        count = len(styles_el.findall(f"{_HH}style"))
+        styles_el.set("itemCnt", str(count))
+        self.mark_dirty()
+        return str(new_id)
 
     @property
     def track_changes(self) -> dict[str, TrackChange]:
