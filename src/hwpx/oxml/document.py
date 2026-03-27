@@ -156,7 +156,7 @@ def _create_paragraph_element(
     paragraph.append(run)
     text_element = run.makeelement(f"{_HP}t", {})
     run.append(text_element)
-    text_element.text = text
+    text_element.text = _sanitize_text(text)
     return paragraph
 
 
@@ -3731,7 +3731,7 @@ class HwpxOxmlSection:
             run = paragraph.makeelement(f"{_HP}run", run_attrs)
             paragraph.append(run)
             text_element = run.makeelement(f"{_HP}t", {})
-            text_element.text = text
+            text_element.text = _sanitize_text(text)
             run.append(text_element)
 
         self._element.append(paragraph)
