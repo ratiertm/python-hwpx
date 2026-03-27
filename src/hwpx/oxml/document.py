@@ -16,6 +16,16 @@ from . import body
 from .common import GenericElement
 from .header import (
     Bullet,
+    CharFontRef,
+    CharOffset,
+    CharOutline,
+    CharProperty,
+    CharRatio,
+    CharRelSize,
+    CharShadow,
+    CharSpacing,
+    CharStrikeout,
+    CharUnderline,
     MemoProperties,
     MemoShape,
     ParagraphProperty,
@@ -25,10 +35,12 @@ from .header import (
     memo_shape_from_attributes,
     parse_bullets,
     parse_border_fills,
+    parse_char_property,
     parse_paragraph_properties,
     parse_styles,
     parse_track_change_authors,
     parse_track_changes,
+    serialize_char_property_into,
 )
 from .utils import parse_int
 
@@ -4793,116 +4805,100 @@ class HwpxOxmlDocument:
                 return False
             return True
 
+        # SPEC: e2e-char-property-dataclass-007 -- ensure_run_style 데이터클래스 연동
         def modifier(element: ET.Element) -> None:
-            # --- Attributes on <hh:charPr> ---
-            if height is not None:
-                element.set("height", str(height))
-            if text_color is not None:
-                element.set("textColor", text_color)
-            if shade_color is not None:
-                element.set("shadeColor", shade_color)
-            if use_font_space:
-                element.set("useFontSpace", "1")
-            if use_kerning:
-                element.set("useKerning", "1")
-            if sym_mark is not None:
-                element.set("symMark", sym_mark)
+            # Parse existing XML into CharProperty dataclass
+            prop = parse_char_property(element)
 
-            # --- Font references <hh:fontRef> ---
+            # --- Direct attributes ---
+            if height is not None:
+                prop.height = height
+            if text_color is not None:
+                prop.text_color = text_color
+            if shade_color is not None:
+                prop.shade_color = shade_color
+            if use_font_space:
+                prop.use_font_space = True
+            if use_kerning:
+                prop.use_kerning = True
+            if sym_mark is not None:
+                prop.sym_mark = sym_mark
+
+            # --- Font references ---
             if has_fonts:
-                font_ref = element.find(f"{_HH}fontRef")
-                if font_ref is None:
-                    font_ref = _append_child(element, f"{_HH}fontRef")
+                if prop.font_ref is None:
+                    prop.font_ref = CharFontRef()
                 for lang, face_name in font_kwargs.items():
                     if face_name is not None:
                         font_id = self._ensure_font_registered(header, lang, face_name)
-                        font_ref.set(lang, str(font_id))
+                        setattr(prop.font_ref, lang, font_id)
 
             # --- Per-language child elements ---
-            def _set_lang_child(tag_local: str, vals: dict[str, str] | None) -> None:
+            def _update_lang_obj(cls, current, vals):
                 if vals is None:
-                    return
-                child = element.find(f"{_HH}{tag_local}")
-                if child is None:
-                    child = _append_child(element, f"{_HH}{tag_local}")
+                    return current
+                if current is None:
+                    current = cls()
                 for lang, v in vals.items():
-                    child.set(lang, v)
+                    setattr(current, lang, int(v))
+                return current
 
-            _set_lang_child("spacing", spacing_vals)
-            _set_lang_child("ratio", ratio_vals)
-            _set_lang_child("relSz", rel_size_vals)
-            _set_lang_child("offset", offset_vals)
+            prop.spacing = _update_lang_obj(CharSpacing, prop.spacing, spacing_vals)
+            prop.ratio = _update_lang_obj(CharRatio, prop.ratio, ratio_vals)
+            prop.rel_size = _update_lang_obj(CharRelSize, prop.rel_size, rel_size_vals)
+            prop.offset = _update_lang_obj(CharOffset, prop.offset, offset_vals)
 
             # --- Bold / Italic ---
-            for child in list(element.findall(f"{_HH}bold")):
-                element.remove(child)
-            for child in list(element.findall(f"{_HH}italic")):
-                element.remove(child)
-            if target[0]:
-                _append_child(element, f"{_HH}bold")
-            if target[1]:
-                _append_child(element, f"{_HH}italic")
+            prop.bold = True if target[0] else None
+            prop.italic = True if target[1] else None
 
             # --- Underline ---
-            underline_nodes = list(element.findall(f"{_HH}underline"))
-            base_underline_attrs = dict(underline_nodes[0].attrib) if underline_nodes else {}
-            for child in underline_nodes:
-                element.remove(child)
-            underline_attrs = dict(base_underline_attrs)
             if target[2]:
-                underline_attrs.setdefault("type", "SOLID")
-                if underline_attrs.get("type", "").upper() == "NONE":
-                    underline_attrs["type"] = "SOLID"
-                underline_attrs.setdefault("shape", "SOLID")
-                underline_attrs.setdefault("color", "#000000")
+                if prop.underline is None:
+                    prop.underline = CharUnderline()
+                if prop.underline.type is None or prop.underline.type.upper() == "NONE":
+                    prop.underline.type = "SOLID"
+                if prop.underline.shape is None:
+                    prop.underline.shape = "SOLID"
+                if prop.underline.color is None:
+                    prop.underline.color = "#000000"
             else:
-                underline_attrs["type"] = "NONE"
-                underline_attrs.setdefault("shape", "SOLID")
-            _append_child(element, f"{_HH}underline", underline_attrs)
+                if prop.underline is None:
+                    prop.underline = CharUnderline()
+                prop.underline.type = "NONE"
+                if prop.underline.shape is None:
+                    prop.underline.shape = "SOLID"
 
             # --- Strikeout ---
-            for child in list(element.findall(f"{_HH}strikeout")):
-                element.remove(child)
             if strikeout:
-                _append_child(element, f"{_HH}strikeout", {
-                    "shape": strikeout_shape, "color": strikeout_color,
-                })
+                prop.strikeout = CharStrikeout(shape=strikeout_shape, color=strikeout_color)
             else:
-                _append_child(element, f"{_HH}strikeout", {"shape": "NONE", "color": "#000000"})
+                prop.strikeout = CharStrikeout(shape="NONE", color="#000000")
 
             # --- Outline ---
-            for child in list(element.findall(f"{_HH}outline")):
-                element.remove(child)
-            _append_child(element, f"{_HH}outline", {"type": outline or "NONE"})
+            prop.outline = CharOutline(type=outline or "NONE")
 
             # --- Shadow ---
-            for child in list(element.findall(f"{_HH}shadow")):
-                element.remove(child)
             if shadow:
-                _append_child(element, f"{_HH}shadow", {
-                    "type": shadow_type, "color": shadow_color,
-                    "offsetX": str(shadow_offset_x), "offsetY": str(shadow_offset_y),
-                })
+                prop.shadow = CharShadow(
+                    type=shadow_type, color=shadow_color,
+                    offset_x=shadow_offset_x, offset_y=shadow_offset_y,
+                )
             else:
-                _append_child(element, f"{_HH}shadow", {
-                    "type": "NONE", "color": "#C0C0C0", "offsetX": "10", "offsetY": "10",
-                })
+                prop.shadow = CharShadow(
+                    type="NONE", color="#C0C0C0", offset_x=10, offset_y=10,
+                )
 
             # --- Emboss / Engrave ---
-            for child in list(element.findall(f"{_HH}emboss")):
-                element.remove(child)
-            for child in list(element.findall(f"{_HH}engrave")):
-                element.remove(child)
-            if emboss:
-                _append_child(element, f"{_HH}emboss")
-            if engrave:
-                _append_child(element, f"{_HH}engrave")
+            prop.emboss = True if emboss else None
+            prop.engrave = True if engrave else None
 
             # --- Superscript / Subscript ---
-            if superscript:
-                element.set("supscript", "SUPERSCRIPT")
-            elif subscript:
-                element.set("supscript", "SUBSCRIPT")
+            prop.supscript = True if superscript else None
+            prop.subscript = True if subscript else None
+
+            # Serialize dataclass back to XML
+            serialize_char_property_into(prop, element)
 
         element = header.ensure_char_property(
             predicate=predicate,

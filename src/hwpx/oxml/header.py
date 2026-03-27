@@ -119,12 +119,119 @@ class NumberingList:
     numberings: List[GenericElement]
 
 
+# SPEC: e2e-char-property-dataclass-001 -- CharProperty 데이터클래스 정의
+@dataclass(slots=True)
+class CharFontRef:
+    hangul: Optional[int] = None
+    latin: Optional[int] = None
+    hanja: Optional[int] = None
+    japanese: Optional[int] = None
+    other: Optional[int] = None
+    symbol: Optional[int] = None
+    user: Optional[int] = None
+
+
+@dataclass(slots=True)
+class CharSpacing:
+    hangul: Optional[int] = None
+    latin: Optional[int] = None
+    hanja: Optional[int] = None
+    japanese: Optional[int] = None
+    other: Optional[int] = None
+    symbol: Optional[int] = None
+    user: Optional[int] = None
+
+
+@dataclass(slots=True)
+class CharRatio:
+    hangul: Optional[int] = None
+    latin: Optional[int] = None
+    hanja: Optional[int] = None
+    japanese: Optional[int] = None
+    other: Optional[int] = None
+    symbol: Optional[int] = None
+    user: Optional[int] = None
+
+
+@dataclass(slots=True)
+class CharRelSize:
+    hangul: Optional[int] = None
+    latin: Optional[int] = None
+    hanja: Optional[int] = None
+    japanese: Optional[int] = None
+    other: Optional[int] = None
+    symbol: Optional[int] = None
+    user: Optional[int] = None
+
+
+@dataclass(slots=True)
+class CharOffset:
+    hangul: Optional[int] = None
+    latin: Optional[int] = None
+    hanja: Optional[int] = None
+    japanese: Optional[int] = None
+    other: Optional[int] = None
+    symbol: Optional[int] = None
+    user: Optional[int] = None
+
+
+@dataclass(slots=True)
+class CharUnderline:
+    type: Optional[str] = None
+    shape: Optional[str] = None
+    color: Optional[str] = None
+
+
+@dataclass(slots=True)
+class CharStrikeout:
+    shape: Optional[str] = None
+    color: Optional[str] = None
+
+
+@dataclass(slots=True)
+class CharOutline:
+    type: Optional[str] = None
+
+
+@dataclass(slots=True)
+class CharShadow:
+    type: Optional[str] = None
+    color: Optional[str] = None
+    offset_x: Optional[int] = None
+    offset_y: Optional[int] = None
+
+
 @dataclass(slots=True)
 class CharProperty:
-    id: Optional[int]
-    attributes: Dict[str, str]
-    child_attributes: Dict[str, Dict[str, str]] = field(default_factory=dict)
-    child_elements: Dict[str, List[GenericElement]] = field(default_factory=dict)
+    id: Optional[int] = None
+    # Direct attributes from charPr element
+    height: Optional[int] = None
+    text_color: Optional[str] = None
+    shade_color: Optional[str] = None
+    use_font_space: Optional[bool] = None
+    use_kerning: Optional[bool] = None
+    sym_mark: Optional[str] = None
+    border_fill_id_ref: Optional[int] = None
+    # Sub-dataclass fields from child elements
+    font_ref: Optional[CharFontRef] = None
+    ratio: Optional[CharRatio] = None
+    spacing: Optional[CharSpacing] = None
+    rel_size: Optional[CharRelSize] = None
+    offset: Optional[CharOffset] = None
+    underline: Optional[CharUnderline] = None
+    strikeout: Optional[CharStrikeout] = None
+    outline: Optional[CharOutline] = None
+    shadow: Optional[CharShadow] = None
+    # Boolean flags (presence of empty element = True)
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    emboss: Optional[bool] = None
+    engrave: Optional[bool] = None
+    supscript: Optional[bool] = None
+    subscript: Optional[bool] = None
+    # Fallback for unknown attributes and elements
+    other_attributes: Dict[str, str] = field(default_factory=dict)
+    other_children: Dict[str, List[GenericElement]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -848,22 +955,152 @@ def parse_border_fills(node: etree._Element) -> BorderFillList:
     return BorderFillList(item_cnt=parse_int(node.get("itemCnt")), fills=fills)
 
 
-def parse_char_property(node: etree._Element) -> CharProperty:
-    child_attributes: Dict[str, Dict[str, str]] = {}
-    child_elements: Dict[str, List[GenericElement]] = {}
+# SPEC: e2e-char-property-dataclass-002 -- parse_char_property 파서 확장
+def _parse_char_lang_fields(node: etree._Element) -> Dict[str, Optional[int]]:
+    """Parse the 7 language-specific integer fields common to fontRef/spacing/ratio/relSz/offset."""
+    return {
+        "hangul": parse_int(node.get("hangul")),
+        "latin": parse_int(node.get("latin")),
+        "hanja": parse_int(node.get("hanja")),
+        "japanese": parse_int(node.get("japanese")),
+        "other": parse_int(node.get("other")),
+        "symbol": parse_int(node.get("symbol")),
+        "user": parse_int(node.get("user")),
+    }
+
+
+def parse_char_font_ref(node: etree._Element) -> CharFontRef:
+    return CharFontRef(**_parse_char_lang_fields(node))
+
+
+def parse_char_spacing(node: etree._Element) -> CharSpacing:
+    return CharSpacing(**_parse_char_lang_fields(node))
+
+
+def parse_char_ratio(node: etree._Element) -> CharRatio:
+    return CharRatio(**_parse_char_lang_fields(node))
+
+
+def parse_char_rel_size(node: etree._Element) -> CharRelSize:
+    return CharRelSize(**_parse_char_lang_fields(node))
+
+
+def parse_char_offset(node: etree._Element) -> CharOffset:
+    return CharOffset(**_parse_char_lang_fields(node))
+
+
+def parse_char_underline(node: etree._Element) -> CharUnderline:
+    return CharUnderline(
+        type=node.get("type"),
+        shape=node.get("shape"),
+        color=node.get("color"),
+    )
+
+
+def parse_char_strikeout(node: etree._Element) -> CharStrikeout:
+    return CharStrikeout(
+        shape=node.get("shape"),
+        color=node.get("color"),
+    )
+
+
+def parse_char_outline(node: etree._Element) -> CharOutline:
+    return CharOutline(type=node.get("type"))
+
+
+def parse_char_shadow(node: etree._Element) -> CharShadow:
+    return CharShadow(
+        type=node.get("type"),
+        color=node.get("color"),
+        offset_x=parse_int(node.get("offsetX")),
+        offset_y=parse_int(node.get("offsetY")),
+    )
+
+
+_CHAR_CHILD_PARSERS: Dict[str, object] = {
+    "fontRef": parse_char_font_ref,
+    "ratio": parse_char_ratio,
+    "spacing": parse_char_spacing,
+    "relSz": parse_char_rel_size,
+    "offset": parse_char_offset,
+    "underline": parse_char_underline,
+    "strikeout": parse_char_strikeout,
+    "outline": parse_char_outline,
+    "shadow": parse_char_shadow,
+}
+
+_CHAR_FIELD_MAP: Dict[str, str] = {
+    "fontRef": "font_ref",
+    "ratio": "ratio",
+    "spacing": "spacing",
+    "relSz": "rel_size",
+    "offset": "offset",
+    "underline": "underline",
+    "strikeout": "strikeout",
+    "outline": "outline",
+    "shadow": "shadow",
+}
+
+_CHAR_BOOL_ELEMENTS = frozenset({"bold", "italic", "emboss", "engrave", "supscript", "subscript"})
+
+# Known charPr attributes that map to explicit fields
+_CHAR_KNOWN_ATTRS = frozenset({"id", "height", "textColor", "shadeColor", "useFontSpace", "useKerning", "symMark", "borderFillIDRef"})
+
+
+def _compat_local_name(element: object) -> str:
+    """Extract local tag name from both lxml and stdlib ET elements."""
+    tag = getattr(element, "tag", "")
+    if isinstance(tag, str) and "}" in tag:
+        return tag.rsplit("}", 1)[1]
+    return tag if isinstance(tag, str) else ""
+
+
+def parse_char_property(node) -> CharProperty:
+    """Parse a charPr XML element into a CharProperty dataclass.
+
+    Works with both lxml and stdlib ET elements.
+    """
+    # Parse child elements
+    kwargs: Dict[str, object] = {}
+    other_children: Dict[str, List[GenericElement]] = {}
+
     for child in node:
-        if len(child) == 0 and (child.text is None or not child.text.strip()):
-            child_attributes[local_name(child)] = {
-                key: value for key, value in child.attrib.items()
-            }
+        name = _compat_local_name(child)
+        if name in _CHAR_CHILD_PARSERS:
+            kwargs[_CHAR_FIELD_MAP[name]] = _CHAR_CHILD_PARSERS[name](child)
+        elif name in _CHAR_BOOL_ELEMENTS:
+            kwargs[name] = True
         else:
-            child_elements.setdefault(local_name(child), []).append(parse_generic_element(child))
+            # Fallback: try lxml parse_generic_element, else create minimal GenericElement
+            try:
+                other_children.setdefault(name, []).append(parse_generic_element(child))
+            except (TypeError, ValueError):
+                ge = GenericElement(
+                    tag=name,
+                    attributes=dict(child.attrib),
+                    text=child.text,
+                    children=[],
+                )
+                other_children.setdefault(name, []).append(ge)
+
+    # Parse attributes
+    other_attributes: Dict[str, str] = {}
+    for key, value in node.attrib.items():
+        if key not in _CHAR_KNOWN_ATTRS:
+            other_attributes[key] = value
 
     return CharProperty(
         id=parse_int(node.get("id")),
-        attributes={key: value for key, value in node.attrib.items() if key != "id"},
-        child_attributes=child_attributes,
-        child_elements=child_elements,
+        height=parse_int(node.get("height")),
+        text_color=node.get("textColor"),
+        shade_color=node.get("shadeColor"),
+        use_font_space=parse_bool(node.get("useFontSpace")),
+        use_kerning=parse_bool(node.get("useKerning")),
+        sym_mark=node.get("symMark"),
+        border_fill_id_ref=parse_int(node.get("borderFillIDRef")),
+        other_attributes=other_attributes,
+        other_children=other_children,
+        **kwargs,
     )
 
 
@@ -872,6 +1109,183 @@ def parse_char_properties(node: etree._Element) -> CharPropertyList:
         parse_char_property(child) for child in node if local_name(child) == "charPr"
     ]
     return CharPropertyList(item_cnt=parse_int(node.get("itemCnt")), properties=properties)
+
+
+# SPEC: e2e-char-property-dataclass-006 -- CharProperty → XML 직렬화
+# SPEC: e2e-char-property-dataclass-012 -- XML 직렬화 정합성
+_HH_NS = "http://www.hancom.co.kr/hwpml/2011/head"
+
+
+def _char_make_child(
+    parent: etree._Element,
+    local_tag: str,
+    attrib: Dict[str, str] | None = None,
+) -> etree._Element:
+    """Create and append a child using parent.makeelement for ET/lxml compat."""
+    tag = f"{{{_HH_NS}}}{local_tag}"
+    child = parent.makeelement(tag, attrib or {})
+    parent.append(child)
+    return child
+
+
+def _serialize_lang_fields(
+    parent: etree._Element,
+    local_tag: str,
+    obj: CharFontRef | CharSpacing | CharRatio | CharRelSize | CharOffset | None,
+) -> None:
+    if obj is None:
+        return
+    attrib: Dict[str, str] = {}
+    for lang in ("hangul", "latin", "hanja", "japanese", "other", "symbol", "user"):
+        val = getattr(obj, lang, None)
+        if val is not None:
+            attrib[lang] = str(val)
+    if attrib:
+        _char_make_child(parent, local_tag, attrib)
+
+
+def serialize_char_font_ref(parent: etree._Element, ref: CharFontRef | None) -> None:
+    _serialize_lang_fields(parent, "fontRef", ref)
+
+
+def serialize_char_ratio(parent: etree._Element, ratio: CharRatio | None) -> None:
+    _serialize_lang_fields(parent, "ratio", ratio)
+
+
+def serialize_char_spacing(parent: etree._Element, spacing: CharSpacing | None) -> None:
+    _serialize_lang_fields(parent, "spacing", spacing)
+
+
+def serialize_char_rel_size(parent: etree._Element, rel_size: CharRelSize | None) -> None:
+    _serialize_lang_fields(parent, "relSz", rel_size)
+
+
+def serialize_char_offset(parent: etree._Element, offset: CharOffset | None) -> None:
+    _serialize_lang_fields(parent, "offset", offset)
+
+
+def serialize_char_underline(parent: etree._Element, ul: CharUnderline | None) -> None:
+    if ul is None:
+        return
+    attrib: Dict[str, str] = {}
+    if ul.type is not None:
+        attrib["type"] = ul.type
+    if ul.shape is not None:
+        attrib["shape"] = ul.shape
+    if ul.color is not None:
+        attrib["color"] = ul.color
+    _char_make_child(parent, "underline", attrib)
+
+
+def serialize_char_strikeout(parent: etree._Element, st: CharStrikeout | None) -> None:
+    if st is None:
+        return
+    attrib: Dict[str, str] = {}
+    if st.shape is not None:
+        attrib["shape"] = st.shape
+    if st.color is not None:
+        attrib["color"] = st.color
+    _char_make_child(parent, "strikeout", attrib)
+
+
+def serialize_char_outline(parent: etree._Element, ol: CharOutline | None) -> None:
+    if ol is None:
+        return
+    attrib: Dict[str, str] = {}
+    if ol.type is not None:
+        attrib["type"] = ol.type
+    _char_make_child(parent, "outline", attrib)
+
+
+def serialize_char_shadow(parent: etree._Element, sh: CharShadow | None) -> None:
+    if sh is None:
+        return
+    attrib: Dict[str, str] = {}
+    if sh.type is not None:
+        attrib["type"] = sh.type
+    if sh.color is not None:
+        attrib["color"] = sh.color
+    if sh.offset_x is not None:
+        attrib["offsetX"] = str(sh.offset_x)
+    if sh.offset_y is not None:
+        attrib["offsetY"] = str(sh.offset_y)
+    _char_make_child(parent, "shadow", attrib)
+
+
+def serialize_char_property_into(prop: CharProperty, element: etree._Element) -> None:
+    """Serialize a CharProperty dataclass into an existing charPr XML element.
+
+    Clears all children and re-creates them in OWPML schema order.
+    Preserves the element's ``id`` attribute. Uses _char_make_child
+    (parent.makeelement) for stdlib/lxml compatibility.
+    """
+    # Preserve id
+    elem_id = element.get("id")
+
+    # Clear element
+    element.attrib.clear()
+    for child in list(element):
+        element.remove(child)
+
+    # Restore id
+    if elem_id is not None:
+        element.set("id", elem_id)
+
+    # Set direct attributes
+    if prop.height is not None:
+        element.set("height", str(prop.height))
+    if prop.text_color is not None:
+        element.set("textColor", prop.text_color)
+    if prop.shade_color is not None:
+        element.set("shadeColor", prop.shade_color)
+    if prop.use_font_space is not None and prop.use_font_space:
+        element.set("useFontSpace", "1")
+    if prop.use_kerning is not None and prop.use_kerning:
+        element.set("useKerning", "1")
+    if prop.sym_mark is not None:
+        element.set("symMark", prop.sym_mark)
+    if prop.border_fill_id_ref is not None:
+        element.set("borderFillIDRef", str(prop.border_fill_id_ref))
+
+    # Restore other_attributes
+    for key, val in prop.other_attributes.items():
+        element.set(key, val)
+
+    # Child elements in OWPML schema order
+    serialize_char_font_ref(element, prop.font_ref)
+    serialize_char_ratio(element, prop.ratio)
+    serialize_char_spacing(element, prop.spacing)
+    serialize_char_rel_size(element, prop.rel_size)
+    serialize_char_offset(element, prop.offset)
+
+    # Boolean flags as empty elements
+    if prop.italic:
+        _char_make_child(element, "italic")
+    if prop.bold:
+        _char_make_child(element, "bold")
+
+    serialize_char_underline(element, prop.underline)
+    serialize_char_strikeout(element, prop.strikeout)
+    serialize_char_outline(element, prop.outline)
+    serialize_char_shadow(element, prop.shadow)
+
+    if prop.emboss:
+        _char_make_child(element, "emboss")
+    if prop.engrave:
+        _char_make_child(element, "engrave")
+    if prop.supscript:
+        _char_make_child(element, "supscript")
+    if prop.subscript:
+        _char_make_child(element, "subscript")
+
+    # Restore other_children (unknown elements)
+    for _name, elements in prop.other_children.items():
+        for ge in elements:
+            ge_elem = _char_make_child(element, ge.tag)
+            for attr_k, attr_v in ge.attributes.items():
+                ge_elem.set(attr_k, attr_v)
+            if ge.text:
+                ge_elem.text = ge.text
 
 
 def parse_tab_properties(node: etree._Element) -> TabProperties:
@@ -1294,14 +1708,24 @@ def parse_header_element(node: etree._Element) -> Header:
     return header
 
 
+# SPEC: e2e-char-property-dataclass-014 -- __all__ 및 임포트 업데이트
 __all__ = [
     "BeginNum",
     "BorderFillList",
     "Bullet",
     "BulletList",
     "BulletParaHead",
+    "CharFontRef",
+    "CharOffset",
+    "CharOutline",
     "CharProperty",
     "CharPropertyList",
+    "CharRatio",
+    "CharRelSize",
+    "CharShadow",
+    "CharSpacing",
+    "CharStrikeout",
+    "CharUnderline",
     "DocOption",
     "Font",
     "FontFace",
@@ -1340,8 +1764,17 @@ __all__ = [
     "parse_bullet",
     "parse_bullet_para_head",
     "parse_bullets",
+    "parse_char_font_ref",
+    "parse_char_offset",
+    "parse_char_outline",
     "parse_char_property",
     "parse_char_properties",
+    "parse_char_ratio",
+    "parse_char_rel_size",
+    "parse_char_shadow",
+    "parse_char_spacing",
+    "parse_char_strikeout",
+    "parse_char_underline",
     "parse_doc_option",
     "parse_forbidden_word_list",
     "parse_header_element",
@@ -1364,6 +1797,16 @@ __all__ = [
     "parse_track_change_author",
     "parse_track_change_authors",
     "parse_track_changes",
+    "serialize_char_font_ref",
+    "serialize_char_offset",
+    "serialize_char_outline",
+    "serialize_char_property_into",
+    "serialize_char_ratio",
+    "serialize_char_rel_size",
+    "serialize_char_shadow",
+    "serialize_char_spacing",
+    "serialize_char_strikeout",
+    "serialize_char_underline",
 ]
 
 logger = logging.getLogger(__name__)
