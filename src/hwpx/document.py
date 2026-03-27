@@ -558,37 +558,229 @@ class HwpxDocument:
 
         return self._root.char_property(char_pr_id_ref)
 
-    def ensure_run_style(self, **kwargs) -> str:
-        """Return a ``charPr`` identifier matching the requested character properties.
+    # SPEC: e2e-api-style-001 -- ensure_run_style backward compat
+    # SPEC: e2e-api-style-002 -- explicit signature + docstring
+    def ensure_run_style(
+        self,
+        *,
+        bold: bool = False,
+        italic: bool = False,
+        underline: bool = False,
+        height: int | None = None,
+        text_color: str | None = None,
+        shade_color: str | None = None,
+        font_hangul: str | None = None,
+        font_latin: str | None = None,
+        font_hanja: str | None = None,
+        font_japanese: str | None = None,
+        font_other: str | None = None,
+        font_symbol: str | None = None,
+        font_user: str | None = None,
+        strikeout: bool = False,
+        strikeout_shape: str = "SOLID",
+        strikeout_color: str = "#000000",
+        outline: str | None = None,
+        shadow: bool = False,
+        shadow_type: str = "DROP",
+        shadow_color: str = "#C0C0C0",
+        shadow_offset_x: int = 10,
+        shadow_offset_y: int = 10,
+        emboss: bool = False,
+        engrave: bool = False,
+        superscript: bool = False,
+        subscript: bool = False,
+        sym_mark: str | None = None,
+        use_font_space: bool = False,
+        use_kerning: bool = False,
+        spacing_hangul: int | None = None,
+        spacing_latin: int | None = None,
+        spacing_hanja: int | None = None,
+        spacing_japanese: int | None = None,
+        spacing_other: int | None = None,
+        spacing_symbol: int | None = None,
+        spacing_user: int | None = None,
+        ratio_hangul: int | None = None,
+        ratio_latin: int | None = None,
+        ratio_hanja: int | None = None,
+        ratio_japanese: int | None = None,
+        ratio_other: int | None = None,
+        ratio_symbol: int | None = None,
+        ratio_user: int | None = None,
+        rel_size_hangul: int | None = None,
+        rel_size_latin: int | None = None,
+        rel_size_hanja: int | None = None,
+        rel_size_japanese: int | None = None,
+        rel_size_other: int | None = None,
+        rel_size_symbol: int | None = None,
+        rel_size_user: int | None = None,
+        offset_hangul: int | None = None,
+        offset_latin: int | None = None,
+        offset_hanja: int | None = None,
+        offset_japanese: int | None = None,
+        offset_other: int | None = None,
+        offset_symbol: int | None = None,
+        offset_user: int | None = None,
+        base_char_pr_id: str | int | None = None,
+    ) -> str:
+        """Return a ``charPr`` identifier matching the requested character style.
 
-        Supports all OWPML charPr attributes. Common parameters:
-            bold, italic, underline: bool
-            height: Font size in hwpunit (100=1pt, 1000=10pt, 2000=20pt)
-            text_color: Text color as #RRGGBB
-            font_hangul, font_latin, ...: Per-language font name
-            strikeout, outline, shadow, emboss, engrave: Decorations
-            superscript, subscript: bool
-            spacing_hangul, ratio_hangul, ...: Per-language spacing/ratio
-            base_char_pr_id: Base charPr to clone from
+        This method finds an existing character property entry whose flags
+        match the request, or creates a new one by cloning and modifying a
+        base entry. The returned ID can be passed to
+        :meth:`add_paragraph` via ``char_pr_id_ref``.
+
+        Args:
+            bold: Bold text.
+            italic: Italic text.
+            underline: Underlined text.
+            height: Font size in hwpunit (100 = 1 pt, 1000 = 10 pt).
+            text_color: Text color as ``#RRGGBB`` string.
+            shade_color: Background shading color.
+            font_hangul: Hangul font face name (auto-registered in fontfaces).
+            font_latin: Latin font face name.
+            font_hanja: Hanja font face name.
+            font_japanese: Japanese font face name.
+            font_other: Other script font face name.
+            font_symbol: Symbol font face name.
+            font_user: User-defined font face name.
+            strikeout: Enable strikeout.
+            strikeout_shape: Strikeout line shape (default ``SOLID``).
+            strikeout_color: Strikeout line color.
+            outline: Outline type (``SOLID``, ``NONE``, etc.).
+            shadow: Enable text shadow.
+            shadow_type: Shadow type (default ``DROP``).
+            shadow_color: Shadow color.
+            shadow_offset_x: Shadow X offset.
+            shadow_offset_y: Shadow Y offset.
+            emboss: Enable emboss effect.
+            engrave: Enable engrave effect.
+            superscript: Enable superscript.
+            subscript: Enable subscript.
+            sym_mark: Emphasis mark type.
+            use_font_space: Use font-defined spacing.
+            use_kerning: Enable kerning.
+            spacing_hangul: Hangul inter-character spacing.
+            ratio_hangul: Hangul character width ratio (%).
+            rel_size_hangul: Hangul relative size (%).
+            offset_hangul: Hangul vertical offset.
+            base_char_pr_id: Base ``charPr`` to clone from.
+
+        Returns:
+            The ``charPr`` identifier string.
+
+        Raises:
+            ValueError: If *height* is non-positive or *text_color* format
+                is invalid.
         """
-        return self._root.ensure_run_style(**kwargs)
+        return self._root.ensure_run_style(
+            bold=bold, italic=italic, underline=underline,
+            height=height, text_color=text_color, shade_color=shade_color,
+            font_hangul=font_hangul, font_latin=font_latin,
+            font_hanja=font_hanja, font_japanese=font_japanese,
+            font_other=font_other, font_symbol=font_symbol, font_user=font_user,
+            strikeout=strikeout, strikeout_shape=strikeout_shape,
+            strikeout_color=strikeout_color, outline=outline,
+            shadow=shadow, shadow_type=shadow_type, shadow_color=shadow_color,
+            shadow_offset_x=shadow_offset_x, shadow_offset_y=shadow_offset_y,
+            emboss=emboss, engrave=engrave,
+            superscript=superscript, subscript=subscript,
+            sym_mark=sym_mark, use_font_space=use_font_space,
+            use_kerning=use_kerning,
+            spacing_hangul=spacing_hangul, spacing_latin=spacing_latin,
+            spacing_hanja=spacing_hanja, spacing_japanese=spacing_japanese,
+            spacing_other=spacing_other, spacing_symbol=spacing_symbol,
+            spacing_user=spacing_user,
+            ratio_hangul=ratio_hangul, ratio_latin=ratio_latin,
+            ratio_hanja=ratio_hanja, ratio_japanese=ratio_japanese,
+            ratio_other=ratio_other, ratio_symbol=ratio_symbol,
+            ratio_user=ratio_user,
+            rel_size_hangul=rel_size_hangul, rel_size_latin=rel_size_latin,
+            rel_size_hanja=rel_size_hanja, rel_size_japanese=rel_size_japanese,
+            rel_size_other=rel_size_other, rel_size_symbol=rel_size_symbol,
+            rel_size_user=rel_size_user,
+            offset_hangul=offset_hangul, offset_latin=offset_latin,
+            offset_hanja=offset_hanja, offset_japanese=offset_japanese,
+            offset_other=offset_other, offset_symbol=offset_symbol,
+            offset_user=offset_user,
+            base_char_pr_id=base_char_pr_id,
+        )
 
-    def ensure_para_style(self, **kwargs) -> str:
-        """Return a ``paraPr`` identifier matching the requested paragraph properties.
+    # SPEC: e2e-api-style-006 -- ensure_para_style naming
+    # SPEC: e2e-api-style-007 -- ensure_para_style docstring
+    def ensure_para_style(
+        self,
+        *,
+        align: str | None = None,
+        vertical_align: str | None = None,
+        line_spacing: int | None = None,
+        line_spacing_type: str = "PERCENT",
+        indent: int | None = None,
+        margin_left: int | None = None,
+        margin_right: int | None = None,
+        spacing_before: int | None = None,
+        spacing_after: int | None = None,
+        heading_type: str | None = None,
+        heading_level: int = 0,
+        heading_id_ref: int = 0,
+        keep_with_next: bool = False,
+        keep_lines: bool = False,
+        page_break_before: bool = False,
+        widow_orphan: bool = False,
+        border_fill_id: int | None = None,
+        tab_pr_id: int | None = None,
+        base_para_pr_id: str | int | None = None,
+    ) -> str:
+        """Return a ``paraPr`` identifier matching the requested paragraph style.
 
-        Supports all OWPML paraPr attributes. Common parameters:
-            align: LEFT, CENTER, RIGHT, JUSTIFY, DISTRIBUTE
-            line_spacing: Line spacing value (160 = 160% for PERCENT type)
-            line_spacing_type: PERCENT, FIXED, BETWEEN_LINES, AT_LEAST
-            indent: First-line indent in hwpunit
-            margin_left, margin_right: Left/right margin in hwpunit
-            spacing_before, spacing_after: Before/after paragraph spacing in hwpunit
-            heading_type, heading_level: Heading/outline settings
-            keep_with_next, page_break_before: Break settings
-            border_fill_id, tab_pr_id: Reference IDs
-            base_para_pr_id: Base paraPr to clone from
+        This method creates a new paragraph property entry in the header
+        and returns its ID. The ID can be passed to :meth:`add_paragraph`
+        via ``para_pr_id_ref``.
+
+        Args:
+            align: Horizontal alignment — ``LEFT``, ``CENTER``, ``RIGHT``,
+                ``JUSTIFY``, ``DISTRIBUTE``, or ``DISTRIBUTE_SPACE``.
+            vertical_align: Vertical alignment — ``BASELINE``, ``TOP``,
+                ``CENTER``, ``BOTTOM``.
+            line_spacing: Line spacing value. Meaning depends on
+                *line_spacing_type* (e.g. 160 = 160 % when type is
+                ``PERCENT``).
+            line_spacing_type: ``PERCENT``, ``FIXED``, ``BETWEEN_LINES``,
+                or ``AT_LEAST``.
+            indent: First-line indent in hwpunit.
+            margin_left: Left margin in hwpunit.
+            margin_right: Right margin in hwpunit.
+            spacing_before: Space before paragraph in hwpunit.
+            spacing_after: Space after paragraph in hwpunit.
+            heading_type: Heading type (``NONE``, ``OUTLINE``, etc.).
+            heading_level: Heading level (0-based).
+            heading_id_ref: Heading ID reference.
+            keep_with_next: Keep paragraph with next.
+            keep_lines: Keep all lines together.
+            page_break_before: Insert page break before paragraph.
+            widow_orphan: Prevent widow/orphan lines.
+            border_fill_id: Border fill ID reference.
+            tab_pr_id: Tab property ID reference.
+            base_para_pr_id: Base ``paraPr`` to clone from.
+
+        Returns:
+            The ``paraPr`` identifier string.
+
+        Raises:
+            ValueError: If *align* is not a valid value or *line_spacing*
+                is non-positive.
         """
-        return self._root.ensure_para_style(**kwargs)
+        return self._root.ensure_para_style(
+            align=align, vertical_align=vertical_align,
+            line_spacing=line_spacing, line_spacing_type=line_spacing_type,
+            indent=indent, margin_left=margin_left, margin_right=margin_right,
+            spacing_before=spacing_before, spacing_after=spacing_after,
+            heading_type=heading_type, heading_level=heading_level,
+            heading_id_ref=heading_id_ref,
+            keep_with_next=keep_with_next, keep_lines=keep_lines,
+            page_break_before=page_break_before, widow_orphan=widow_orphan,
+            border_fill_id=border_fill_id, tab_pr_id=tab_pr_id,
+            base_para_pr_id=base_para_pr_id,
+        )
 
     def iter_runs(self) -> Iterator[HwpxOxmlRun]:
         """Yield every run element contained in the document."""
@@ -1609,14 +1801,28 @@ class HwpxDocument:
 
     # SPEC: e2e-phase2-006 -- create_style
     # SPEC: e2e-phase2-007 -- create_style Connection
+    # SPEC: e2e-api-style-011 -- create_style docstring
     def create_style(
         self, name: str, style_type: str = "PARA",
         char_pr_id: str | int | None = None,
         para_pr_id: str | int | None = None,
     ) -> str:
-        """Create a named style in header.xml. Returns the style ID.
+        """Create a named style in ``<hh:styles>`` and return its ID.
 
-        If a style with the same name exists, returns its existing ID.
+        If a style with the same *name* already exists, the existing ID
+        is returned without modification.
+
+        Args:
+            name: Human-readable style name (e.g. ``"제목1"``).
+            style_type: Style type — ``PARA`` or ``CHAR``.
+            char_pr_id: Character property ID to reference.
+            para_pr_id: Paragraph property ID to reference.
+
+        Returns:
+            The style identifier string.
+
+        Raises:
+            ValueError: If the document has no headers.
         """
         if not self._root.headers:
             raise ValueError("document has no headers")

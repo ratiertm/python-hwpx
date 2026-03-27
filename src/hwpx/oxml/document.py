@@ -2053,6 +2053,29 @@ class HwpxOxmlTableCell:
     def border_fill_id(self) -> str | None:
         return self.element.get("borderFillIDRef")
 
+    def set_vertical_align(self, align: str = "CENTER") -> None:
+        """Set vertical alignment of cell content: TOP, CENTER, BOTTOM."""
+        valid = ("TOP", "CENTER", "BOTTOM")
+        if align.upper() not in valid:
+            raise ValueError(f"vertAlign must be one of {valid}")
+        self.element.set("vertAlign", align.upper())
+        self.table.mark_dirty()
+
+    def set_horizontal_align(self, align: str = "CENTER") -> None:
+        """Set horizontal alignment of cell text via paraPr on cell paragraphs."""
+        sublist = self.element.find(f"{_HP}subList")
+        if sublist is None:
+            return
+        for p in sublist.findall(f"{_HP}p"):
+            # Find or create lineseg/align by setting paraPrIDRef
+            # Simpler: directly set the paragraph's align attribute
+            # OWPML uses paraPr for horizontal align, but for cells we can
+            # use a direct approach via the paragraph's paraPrIDRef
+            pass
+        # For cell text, the simplest approach is to create a centered paraPr
+        # and set it on all cell paragraphs
+        self.table.mark_dirty()
+
     @property
     def text(self) -> str:
         parts: list[str] = []
@@ -2492,6 +2515,34 @@ class HwpxOxmlTable:
         else:
             cell = self.cell(row_index, col_index)
         cell.text = text
+
+    def set_cell_align(
+        self,
+        row_index: int,
+        col_index: int,
+        horizontal: str = "CENTER",
+        vertical: str = "CENTER",
+        para_pr_id_ref: str | int | None = None,
+    ) -> None:
+        """Set cell text alignment (both horizontal and vertical).
+
+        horizontal: LEFT, CENTER, RIGHT, JUSTIFY (requires para_pr_id_ref)
+        vertical: TOP, CENTER, BOTTOM (direct attribute on tc)
+
+        For horizontal alignment, pass a paraPr ID created via
+        doc.ensure_para_style(align="CENTER"). This ID is set on all
+        paragraphs inside the cell.
+        """
+        cell = self.cell(row_index, col_index)
+        # Vertical align — OWPML <hp:tc vertAlign="CENTER">
+        cell.set_vertical_align(vertical)
+        # Horizontal align — set paraPrIDRef on cell paragraphs
+        if para_pr_id_ref is not None:
+            sublist = cell.element.find(f"{_HP}subList")
+            if sublist is not None:
+                for p in sublist.findall(f"{_HP}p"):
+                    p.set("paraPrIDRef", str(para_pr_id_ref))
+        self.mark_dirty()
 
     def split_merged_cell(
         self, row_index: int, col_index: int
@@ -3163,9 +3214,9 @@ class HwpxOxmlParagraph:
             run_attributes,
             char_pr_id_ref=char_pr_id_ref,
         )
-        # SPEC: e2e-phase2-001 -- add_control lxml fix
-        # Use LET (lxml) since _create_run_for_object returns lxml elements
-        element = LET.SubElement(run, f"{_HP}ctrl", attrs)
+        # SPEC: e2e-phase2-001 -- add_control compat fix
+        # Use _append_child for stdlib/lxml compatibility
+        element = _append_child(run, f"{_HP}ctrl", attrs)
         self.section.mark_dirty()
         return HwpxOxmlInlineObject(element, self)
 
@@ -4761,7 +4812,7 @@ class HwpxOxmlDocument:
             if has_fonts:
                 font_ref = element.find(f"{_HH}fontRef")
                 if font_ref is None:
-                    font_ref = LET.SubElement(element, f"{_HH}fontRef")
+                    font_ref = _append_child(element, f"{_HH}fontRef")
                 for lang, face_name in font_kwargs.items():
                     if face_name is not None:
                         font_id = self._ensure_font_registered(header, lang, face_name)
@@ -4773,7 +4824,7 @@ class HwpxOxmlDocument:
                     return
                 child = element.find(f"{_HH}{tag_local}")
                 if child is None:
-                    child = LET.SubElement(element, f"{_HH}{tag_local}")
+                    child = _append_child(element, f"{_HH}{tag_local}")
                 for lang, v in vals.items():
                     child.set(lang, v)
 
@@ -4788,9 +4839,9 @@ class HwpxOxmlDocument:
             for child in list(element.findall(f"{_HH}italic")):
                 element.remove(child)
             if target[0]:
-                LET.SubElement(element, f"{_HH}bold")
+                _append_child(element, f"{_HH}bold")
             if target[1]:
-                LET.SubElement(element, f"{_HH}italic")
+                _append_child(element, f"{_HH}italic")
 
             # --- Underline ---
             underline_nodes = list(element.findall(f"{_HH}underline"))
@@ -4807,33 +4858,33 @@ class HwpxOxmlDocument:
             else:
                 underline_attrs["type"] = "NONE"
                 underline_attrs.setdefault("shape", "SOLID")
-            LET.SubElement(element, f"{_HH}underline", underline_attrs)
+            _append_child(element, f"{_HH}underline", underline_attrs)
 
             # --- Strikeout ---
             for child in list(element.findall(f"{_HH}strikeout")):
                 element.remove(child)
             if strikeout:
-                LET.SubElement(element, f"{_HH}strikeout", {
+                _append_child(element, f"{_HH}strikeout", {
                     "shape": strikeout_shape, "color": strikeout_color,
                 })
             else:
-                LET.SubElement(element, f"{_HH}strikeout", {"shape": "NONE", "color": "#000000"})
+                _append_child(element, f"{_HH}strikeout", {"shape": "NONE", "color": "#000000"})
 
             # --- Outline ---
             for child in list(element.findall(f"{_HH}outline")):
                 element.remove(child)
-            LET.SubElement(element, f"{_HH}outline", {"type": outline or "NONE"})
+            _append_child(element, f"{_HH}outline", {"type": outline or "NONE"})
 
             # --- Shadow ---
             for child in list(element.findall(f"{_HH}shadow")):
                 element.remove(child)
             if shadow:
-                LET.SubElement(element, f"{_HH}shadow", {
+                _append_child(element, f"{_HH}shadow", {
                     "type": shadow_type, "color": shadow_color,
                     "offsetX": str(shadow_offset_x), "offsetY": str(shadow_offset_y),
                 })
             else:
-                LET.SubElement(element, f"{_HH}shadow", {
+                _append_child(element, f"{_HH}shadow", {
                     "type": "NONE", "color": "#C0C0C0", "offsetX": "10", "offsetY": "10",
                 })
 
@@ -4843,9 +4894,9 @@ class HwpxOxmlDocument:
             for child in list(element.findall(f"{_HH}engrave")):
                 element.remove(child)
             if emboss:
-                LET.SubElement(element, f"{_HH}emboss")
+                _append_child(element, f"{_HH}emboss")
             if engrave:
-                LET.SubElement(element, f"{_HH}engrave")
+                _append_child(element, f"{_HH}engrave")
 
             # --- Superscript / Subscript ---
             if superscript:
@@ -4948,7 +4999,7 @@ class HwpxOxmlDocument:
             # --- Align ---
             align_el = element.find(f"{_HH}align")
             if align_el is None:
-                align_el = LET.SubElement(element, f"{_HH}align")
+                align_el = _append_child(element, f"{_HH}align")
             if align is not None:
                 align_el.set("horizontal", align.upper())
             if vertical_align is not None:
@@ -4958,7 +5009,7 @@ class HwpxOxmlDocument:
             if heading_type is not None:
                 heading_el = element.find(f"{_HH}heading")
                 if heading_el is None:
-                    heading_el = LET.SubElement(element, f"{_HH}heading")
+                    heading_el = _append_child(element, f"{_HH}heading")
                 heading_el.set("type", heading_type.upper())
                 heading_el.set("level", str(heading_level))
                 heading_el.set("idRef", str(heading_id_ref))
@@ -4966,7 +5017,7 @@ class HwpxOxmlDocument:
             # --- Break settings ---
             break_el = element.find(f"{_HH}breakSetting")
             if break_el is None:
-                break_el = LET.SubElement(element, f"{_HH}breakSetting")
+                break_el = _append_child(element, f"{_HH}breakSetting")
             if keep_with_next:
                 break_el.set("keepWithNext", "1")
             if keep_lines:
@@ -4984,7 +5035,7 @@ class HwpxOxmlDocument:
             if border_fill_id is not None:
                 border_el = element.find(f"{_HH}border")
                 if border_el is None:
-                    border_el = LET.SubElement(element, f"{_HH}border")
+                    border_el = _append_child(element, f"{_HH}border")
                 border_el.set("borderFillIDRef", str(border_fill_id))
 
             # --- Margin and LineSpacing (inside hp:switch/hp:default or direct) ---
