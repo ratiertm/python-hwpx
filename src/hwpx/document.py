@@ -1589,6 +1589,92 @@ class HwpxDocument:
                           inherit_style=False, para_pr_id_ref=0)
         return paragraphs
 
+    # -- Heading & Table of Contents ----------------------------------------
+
+    _heading_registry: list[tuple[int, str]] = []
+
+    def add_heading(
+        self,
+        text: str,
+        level: int = 1,
+        *,
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add a heading paragraph and register it for TOC generation.
+
+        Args:
+            text: Heading text.
+            level: Heading level (1=largest, 2, 3...).
+        """
+        # Font sizes: h1=24pt, h2=18pt, h3=14pt, h4=12pt
+        sizes = {1: 2400, 2: 1800, 3: 1400, 4: 1200}
+        height = sizes.get(level, 1000)
+        char_id = self.ensure_run_style(bold=True, height=height)
+        para = self.add_paragraph(text, char_pr_id_ref=char_id,
+                                  section=section, section_index=section_index)
+        # Register for TOC
+        if not hasattr(self, '_heading_registry') or self._heading_registry is None:
+            self._heading_registry = []
+        self._heading_registry.append((level, text))
+        return para
+
+    def add_table_of_contents(
+        self,
+        title: str = "목차",
+        *,
+        max_level: int = 3,
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+    ) -> list[HwpxOxmlParagraph]:
+        """Generate a table of contents from registered headings.
+
+        Must be called AFTER all add_heading() calls. Generates a static TOC
+        (not auto-updating like Hancom's field-based TOC).
+
+        Args:
+            title: TOC title text.
+            max_level: Maximum heading level to include (1~4).
+        """
+        if not hasattr(self, '_heading_registry'):
+            self._heading_registry = []
+
+        paragraphs = []
+
+        # TOC Title
+        toc_title_style = self.ensure_run_style(bold=True, height=1600)
+        para = self.add_paragraph(title, char_pr_id_ref=toc_title_style,
+                                  section=section, section_index=section_index)
+        paragraphs.append(para)
+        self.add_paragraph("", section=section, section_index=section_index)
+
+        # TOC entries
+        normal = self.ensure_run_style(height=1000)
+        for level, heading_text in self._heading_registry:
+            if level > max_level:
+                continue
+            # Indent: level 1 = no indent, level 2 = "  ", level 3 = "    "
+            indent = "  " * (level - 1)
+            prefix = f"{indent}"
+            entry_text = f"{prefix}{heading_text}"
+
+            if level == 1:
+                style = self.ensure_run_style(bold=True, height=1100)
+            elif level == 2:
+                style = self.ensure_run_style(height=1000)
+            else:
+                style = self.ensure_run_style(height=900)
+
+            para = self.add_paragraph(entry_text, char_pr_id_ref=style,
+                                      section=section, section_index=section_index)
+            paragraphs.append(para)
+
+        self.add_paragraph("", section=section, section_index=section_index)
+        self.add_line(0, 0, 42520, 0, line_color='#CCCCCC', line_width='71',
+                      section=section, section_index=section_index)
+        self.add_paragraph("", section=section, section_index=section_index)
+        return paragraphs
+
     def remove_header(
         self,
         *,
