@@ -1252,8 +1252,7 @@ class HwpxDocument:
         section_index: int | None = None,
         page_type: str = "BOTH",
     ) -> HwpxOxmlSectionHeaderFooter:
-        """Ensure the requested section contains a header for *page_type* and set its text."""
-
+        """Set header text (secPr method — kept for backward compat)."""
         target_section = section
         if target_section is None and section_index is not None:
             target_section = self._root.sections[section_index]
@@ -1263,6 +1262,21 @@ class HwpxDocument:
             target_section = self._root.sections[-1]
         return target_section.properties.set_header_text(text, page_type=page_type)
 
+    def add_header(
+        self,
+        text: str,
+        *,
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+        page_type: str = "BOTH",
+    ) -> HwpxOxmlParagraph:
+        """Add a header matching real Hancom Office structure (ctrl method).
+
+        In real files: <hp:p><hp:run><hp:ctrl><hp:header>...</hp:header></hp:ctrl></hp:run></hp:p>
+        """
+        return self._add_header_footer("header", text, page_type,
+                                       section=section, section_index=section_index)
+
     def set_footer_text(
         self,
         text: str,
@@ -1271,8 +1285,7 @@ class HwpxDocument:
         section_index: int | None = None,
         page_type: str = "BOTH",
     ) -> HwpxOxmlSectionHeaderFooter:
-        """Ensure the requested section contains a footer for *page_type* and set its text."""
-
+        """Set footer text (secPr method — kept for backward compat)."""
         target_section = section
         if target_section is None and section_index is not None:
             target_section = self._root.sections[section_index]
@@ -1281,6 +1294,65 @@ class HwpxDocument:
                 raise ValueError("document does not contain any sections")
             target_section = self._root.sections[-1]
         return target_section.properties.set_footer_text(text, page_type=page_type)
+
+    def add_footer(
+        self,
+        text: str,
+        *,
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+        page_type: str = "BOTH",
+    ) -> HwpxOxmlParagraph:
+        """Add a footer matching real Hancom Office structure (ctrl method)."""
+        return self._add_header_footer("footer", text, page_type,
+                                       section=section, section_index=section_index)
+
+    def _add_header_footer(
+        self, tag: str, text: str, page_type: str,
+        *, section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Create header/footer in ctrl element matching real Hancom Office structure.
+
+        Real structure: <hp:p><hp:run><hp:ctrl><hp:header id="" applyPageType="BOTH">
+                         <hp:subList ...><hp:p ...><hp:run ...><hp:t>text</hp:t>
+                         </hp:run></hp:p></hp:subList></hp:header></hp:ctrl></hp:run></hp:p>
+        """
+        para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
+        run = para.element.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
+        para.element.append(run)
+
+        ctrl = run.makeelement(f"{_HP}ctrl", {})
+        run.append(ctrl)
+
+        hf_id = str(uuid.uuid4().int % (2**31))
+        hf = ctrl.makeelement(f"{_HP}{tag}", {
+            "id": hf_id, "applyPageType": page_type,
+        })
+        ctrl.append(hf)
+
+        vert = "TOP" if tag == "header" else "BOTTOM"
+        sub = hf.makeelement(f"{_HP}subList", {
+            "id": "", "textDirection": "HORIZONTAL", "lineWrap": "BREAK",
+            "vertAlign": vert, "linkListIDRef": "0", "linkListNextIDRef": "0",
+            "textWidth": "42520", "textHeight": "4252",
+            "hasTextRef": "0", "hasNumRef": "0",
+        })
+        hf.append(sub)
+
+        p = sub.makeelement(f"{_HP}p", {
+            "id": "0", "paraPrIDRef": "0", "styleIDRef": "0",
+            "pageBreak": "0", "columnBreak": "0", "merged": "0",
+        })
+        sub.append(p)
+
+        inner_run = p.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
+        p.append(inner_run)
+
+        t = inner_run.makeelement(f"{_HP}t", {})
+        t.text = text
+        inner_run.append(t)
+
+        return para
 
     def remove_header(
         self,
