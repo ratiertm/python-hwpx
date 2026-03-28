@@ -448,9 +448,13 @@ class HwpxPackage:
             if existing.get("id") == item_id:
                 return  # already present
 
+        attrs = {"id": item_id, "href": href, "media-type": media_type}
+        # Images need isEmbeded="1" for Hancom Office compatibility
+        if media_type.startswith("image/"):
+            attrs["isEmbeded"] = "1"
         new_item = manifest_el.makeelement(
             f"{{{OPF_NS['opf']}}}item",
-            {"id": item_id, "href": href, "media-type": media_type},
+            attrs,
         )
         manifest_el.append(new_item)
         self._persist_manifest()

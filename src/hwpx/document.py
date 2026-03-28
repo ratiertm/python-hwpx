@@ -50,6 +50,8 @@ _HP_NS = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 _HP = f"{{{_HP_NS}}}"
 _HH_NS = "http://www.hancom.co.kr/hwpml/2011/head"
 _HH = f"{{{_HH_NS}}}"
+_HC_NS = "http://www.hancom.co.kr/hwpml/2011/core"
+_HC = f"{{{_HC_NS}}}"
 
 logger = logging.getLogger(__name__)
 
@@ -1354,16 +1356,16 @@ class HwpxDocument:
         fmt = image_format.lower().lstrip(".")
         media_type = self._FORMAT_TO_MEDIA_TYPE.get(fmt, f"image/{fmt}")
 
-        # Determine a unique item id
+        # Determine a unique item id (Hancom uses "imageN" pattern)
         if item_id is None:
             existing_ids: set[str] = set()
-            header = self._root.headers[0] if self._root.headers else None
-            if header is not None:
-                for bi in header.list_bin_items():
-                    existing_ids.add(bi.get("id", ""))
-            n = len(existing_ids) + 1
+            for mi in self._package._manifest_items():
+                mid = mi.get("id", "")
+                if mid:
+                    existing_ids.add(mid)
+            n = 1
             while True:
-                item_id = f"BIN{n:04d}"
+                item_id = f"image{n}"
                 if item_id not in existing_ids:
                     break
                 n += 1
@@ -1375,17 +1377,9 @@ class HwpxDocument:
         # 1) Write image bytes into the package
         self._package.write(bin_data_path, image_data)
 
-        # 2) Register in manifest
+        # 2) Register in manifest (content.hpf) with isEmbeded="1"
+        # binaryItemIDRef in <hc:img> references this manifest item id
         self._package.add_manifest_item(item_id, bin_data_path, media_type)
-
-        # 3) Register in header binDataList
-        header = self._root.headers[0] if self._root.headers else None
-        if header is not None:
-            header.add_bin_item(
-                item_type="Embedding",
-                bin_data_id=bin_data_name,
-                format=fmt,
-            )
 
         return item_id
 
@@ -1500,7 +1494,6 @@ class HwpxDocument:
             effect: REAL_PIC, GRAY_SCALE, or BLACK_WHITE.
         """
         from pathlib import Path
-        from lxml import etree as LET
 
         if isinstance(source, str):
             p = Path(source)
@@ -1514,74 +1507,89 @@ class HwpxDocument:
 
         item_id = self.add_image(img_data, fmt)
 
-        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        # Detect original image pixel dimensions → hwpunit
+        org_width, org_height = width, height
+        try:
+            from PIL import Image as _PILImage
+            pil_img = _PILImage.open(io.BytesIO(img_data))
+            pw, ph = pil_img.size
+            org_width = int(pw * 28.35)
+            org_height = int(ph * 28.35)
+        except Exception:
+            pass
+
+        # Build <hp:pic> matching actual Hancom Office output
+        # Ref: hwpxlib/testFile/reader_writer/SimplePicture.hwpx
         para = self.add_paragraph("", include_run=False)
-        run = LET.SubElement(para.element, f"{{{HP}}}run")
-        run.set("charPrIDRef", "0")
+        run = _mk(para.element, f"{_HP}run", {"charPrIDRef": "0"})
 
-        pic = LET.SubElement(run, f"{{{HP}}}pic")
+        pic_id = str(uuid.uuid4().int % (2**31))
+        inst_id = str(uuid.uuid4().int % (2**31))
+        pic = _mk(run, f"{_HP}pic", {
+            "id": pic_id, "zOrder": "0", "numberingType": "PICTURE",
+            "textWrap": "TOP_AND_BOTTOM", "textFlow": "BOTH_SIDES",
+            "lock": "0", "dropcapstyle": "None", "href": "",
+            "groupLevel": "0", "instid": inst_id, "reverse": "0",
+        })
 
-        # shapeObject
-        so = LET.SubElement(pic, f"{{{HP}}}shapeObject")
-        so.set("id", "")
-        so.set("zOrder", "0")
-        so.set("numberingType", "PICTURE")
-        so.set("textWrap", "TOP_AND_BOTTOM")
-        so.set("textFlow", "BOTH_SIDES")
-        so.set("lock", "0")
+        # AbstractShapeComponentType children (FIRST)
+        _mk(pic, f"{_HP}offset", {"x": "0", "y": "0"})
+        _mk(pic, f"{_HP}orgSz", {"width": str(org_width), "height": str(org_height)})
+        _mk(pic, f"{_HP}curSz", {"width": str(width), "height": str(height)})
+        _mk(pic, f"{_HP}flip", {"horizontal": "0", "vertical": "0"})
+        cx, cy = width // 2, height // 2
+        _mk(pic, f"{_HP}rotationInfo", {
+            "angle": "0", "centerX": str(cx), "centerY": str(cy), "rotateimage": "1",
+        })
 
-        sz = LET.SubElement(so, f"{{{HP}}}sz")
-        sz.set("width", str(width))
-        sz.set("height", str(height))
-        sz.set("widthRelTo", "ABSOLUTE")
-        sz.set("heightRelTo", "ABSOLUTE")
+        # renderingInfo (hc: namespace matrices)
+        ri = _mk(pic, f"{_HP}renderingInfo")
+        _mk(ri, f"{_HC}transMatrix", {"e1": "1", "e2": "0", "e3": "0", "e4": "0", "e5": "1", "e6": "0"})
+        sx = f"{width / org_width:.6f}" if org_width > 0 else "1"
+        sy = f"{height / org_height:.6f}" if org_height > 0 else "1"
+        _mk(ri, f"{_HC}scaMatrix", {"e1": sx, "e2": "0", "e3": "0", "e4": "0", "e5": sy, "e6": "0"})
+        _mk(ri, f"{_HC}rotMatrix", {"e1": "1", "e2": "0", "e3": "0", "e4": "0", "e5": "1", "e6": "0"})
 
-        pos = LET.SubElement(so, f"{{{HP}}}pos")
-        pos.set("treatAsChar", "1")
-        pos.set("affectLSpacing", "0")
-        pos.set("flowWithText", "1")
-        pos.set("allowOverlap", "1")
-        pos.set("holdAnchorAndSO", "0")
-        pos.set("vertRelTo", "PARA")
-        pos.set("horzRelTo", "PARA")
-        pos.set("vertAlign", "TOP")
-        pos.set("horzAlign", "LEFT")
-        pos.set("vertOffset", "0")
-        pos.set("horzOffset", "0")
+        # PictureType children
+        # imgRect (hc: namespace points, orgSz coordinates)
+        img_rect = _mk(pic, f"{_HP}imgRect")
+        _mk(img_rect, f"{_HC}pt0", {"x": "0", "y": "0"})
+        _mk(img_rect, f"{_HC}pt1", {"x": str(org_width), "y": "0"})
+        _mk(img_rect, f"{_HC}pt2", {"x": str(org_width), "y": str(org_height)})
+        _mk(img_rect, f"{_HC}pt3", {"x": "0", "y": str(org_height)})
 
-        om = LET.SubElement(so, f"{{{HP}}}outMargin")
-        om.set("left", "0")
-        om.set("right", "0")
-        om.set("top", "0")
-        om.set("bottom", "0")
+        _mk(pic, f"{_HP}imgClip", {
+            "left": str(crop_left), "top": str(crop_top),
+            "right": str(crop_right), "bottom": str(crop_bottom),
+        })
+        _mk(pic, f"{_HP}inMargin", {"left": "0", "right": "0", "top": "0", "bottom": "0"})
+        _mk(pic, f"{_HP}imgDim", {"dimwidth": str(org_width), "dimheight": str(org_height)})
 
-        # shapeRect
-        sr = LET.SubElement(pic, f"{{{HP}}}shapeRect")
-        sr.set("x", "0")
-        sr.set("y", "0")
-        sr.set("cx", str(width))
-        sr.set("cy", str(height))
+        # img — hc: namespace (Core schema ImageType)
+        _mk(pic, f"{_HC}img", {
+            "binaryItemIDRef": item_id,
+            "bright": str(bright), "contrast": str(contrast),
+            "effect": effect, "alpha": str(alpha),
+        })
 
-        # imgRect + imgClip
-        ir = LET.SubElement(pic, f"{{{HP}}}imgRect")
-        ic = LET.SubElement(ir, f"{{{HP}}}imgClip")
-        ic.set("left", str(crop_left))
-        ic.set("top", str(crop_top))
-        ic.set("right", str(crop_right))
-        ic.set("bottom", str(crop_bottom))
-
-        # imgDim
-        idim = LET.SubElement(pic, f"{{{HP}}}imgDim")
-        idim.set("dimwidth", str(width))
-        idim.set("dimheight", str(height))
-
-        # img
-        img_el = LET.SubElement(pic, f"{{{HP}}}img")
-        img_el.set("binaryItemIDRef", item_id)
-        img_el.set("bright", str(bright))
-        img_el.set("contrast", str(contrast))
-        img_el.set("effect", effect)
-        img_el.set("alpha", str(alpha))
+        # AbstractShapeObjectType children (LAST)
+        _mk(pic, f"{_HP}sz", {
+            "width": str(width), "height": str(height),
+            "widthRelTo": "ABSOLUTE", "heightRelTo": "ABSOLUTE", "protect": "0",
+        })
+        _mk(pic, f"{_HP}pos", {
+            "treatAsChar": "1", "affectLSpacing": "0",
+            "flowWithText": "1", "allowOverlap": "1", "holdAnchorAndSO": "0",
+            "vertRelTo": "PARA", "horzRelTo": "PARA",
+            "vertAlign": "TOP", "horzAlign": "LEFT",
+            "vertOffset": "0", "horzOffset": "0",
+        })
+        _mk(pic, f"{_HP}outMargin", {"left": "0", "right": "0", "top": "0", "bottom": "0"})
 
         return para
 
