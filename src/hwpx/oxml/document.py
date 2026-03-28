@@ -2070,6 +2070,29 @@ class HwpxOxmlTableCell:
     def border_fill_id(self) -> str | None:
         return self.element.get("borderFillIDRef")
 
+    def set_background_color(
+        self, face_color: str, hatch_color: str | None = None,
+        *, header: "HwpxOxmlHeader | None" = None,
+    ) -> str:
+        """Set cell background color by creating a borderFill and assigning it.
+
+        Args:
+            face_color: Background color (#RRGGBB).
+            hatch_color: Hatch pattern color. Defaults to face_color.
+            header: HwpxOxmlHeader to create borderFill in. Required.
+
+        Returns:
+            The new borderFill id.
+        """
+        if header is None:
+            raise ValueError("header is required to create borderFill")
+        bf_id = header.create_border_fill(
+            face_color=face_color,
+            hatch_color=hatch_color,
+        )
+        self.set_border_fill_id(bf_id)
+        return bf_id
+
     def set_vertical_align(self, align: str = "CENTER") -> None:
         """Set vertical alignment of cell content: TOP, CENTER, BOTTOM."""
         valid = ("TOP", "CENTER", "BOTTOM")
@@ -2816,14 +2839,25 @@ class HwpxOxmlTable:
         self.mark_dirty()
 
     def set_cell_background(self, row: int, col: int, color: str) -> None:
-        """Set background color for a cell. Convenience wrapper.
+        """Set background color for a cell by creating a borderFill in header.
 
-        Note: This sets borderFillIDRef. For full control, use cell.set_border_fill_id().
+        Creates a proper ``<hh:borderFill>`` with ``<hc:fillBrush>``/``<hc:winBrush>``
+        matching real Hancom Office structure, then assigns its id to the cell.
+
+        Args:
+            row: Row index (0-based).
+            col: Column index (0-based).
+            color: Background color in #RRGGBB format.
         """
         cell = self.cell(row, col)
-        # Set the color as an attribute hint. Full borderFill management
-        # requires creating a borderFill entry in header.xml.
-        cell.element.set("_bgColor", color)
+        document = self.paragraph.section.document
+        if document is None:
+            raise RuntimeError("Table must be attached to a document to set background color")
+        header = document._headers[0] if document._headers else None
+        if header is None:
+            raise RuntimeError("Document has no header to create borderFill")
+        bf_id = header.create_border_fill(face_color=color)
+        cell.set_border_fill_id(bf_id)
         self.mark_dirty()
 
 
@@ -4088,6 +4122,75 @@ class HwpxOxmlHeader:
         if ref_list is None:
             return None
         return ref_list.find(f"{_HH}trackChangeAuthors")
+
+    def create_border_fill(
+        self,
+        *,
+        face_color: str | None = None,
+        hatch_color: str | None = None,
+        hatch_style: str | None = None,
+        border_type: str = "SOLID",
+        border_width: str = "0.12 mm",
+        border_color: str = "#000000",
+    ) -> str:
+        """Create a ``<hh:borderFill>`` with optional background color.
+
+        Matches real Hancom Office borderFill structure per hwpxlib Java
+        BorderFillWriter + FillBrushWriter.
+
+        Args:
+            face_color: Background fill color (#RRGGBB). None = no fill.
+            hatch_color: Hatch pattern color. Defaults to face_color.
+            hatch_style: Hatch style (VERTICAL, CROSS, etc.). None = solid fill.
+            border_type: Border line type (SOLID, NONE, etc.).
+            border_width: Border line width.
+            border_color: Border line color.
+
+        Returns:
+            The borderFill id string.
+        """
+        bf_element = self._border_fills_element(create=True)
+        if bf_element is None:
+            raise RuntimeError("failed to create <borderFills> element")
+
+        new_id = self._allocate_border_fill_id(bf_element)
+
+        bf = bf_element.makeelement(f"{_HH}borderFill", {
+            "id": new_id, "threeD": "0", "shadow": "0",
+            "centerLine": "NONE", "breakCellSeparateLine": "0",
+        })
+        bf_element.append(bf)
+
+        def _mk(parent, tag, attrib):
+            child = parent.makeelement(tag, attrib)
+            parent.append(child)
+            return child
+
+        # slash / backSlash
+        _mk(bf, f"{_HH}slash", {"type": "NONE", "Crooked": "0", "isCounter": "0"})
+        _mk(bf, f"{_HH}backSlash", {"type": "NONE", "Crooked": "0", "isCounter": "0"})
+
+        # borders (hh: namespace)
+        border_attrs = {"type": border_type, "width": border_width, "color": border_color}
+        for side in ("leftBorder", "rightBorder", "topBorder", "bottomBorder"):
+            _mk(bf, f"{_HH}{side}", dict(border_attrs))
+        _mk(bf, f"{_HH}diagonal", {"type": "SOLID", "width": "0.1 mm", "color": "#000000"})
+
+        # fillBrush (hc: namespace) — only if face_color provided
+        if face_color is not None:
+            fb = _mk(bf, f"{_HC}fillBrush", {})
+            wb_attrs: dict[str, str] = {
+                "faceColor": face_color,
+                "hatchColor": hatch_color or face_color,
+                "alpha": "0",
+            }
+            if hatch_style is not None:
+                wb_attrs["hatchStyle"] = hatch_style
+            _mk(fb, f"{_HC}winBrush", wb_attrs)
+
+        self._update_border_fills_item_count(bf_element)
+        self.mark_dirty()
+        return new_id
 
     def find_basic_border_fill_id(self) -> str | None:
         element = self._border_fills_element()
