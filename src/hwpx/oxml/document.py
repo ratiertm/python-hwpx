@@ -2566,19 +2566,41 @@ class HwpxOxmlTable:
     ) -> None:
         """Set cell text alignment (both horizontal and vertical).
 
-        horizontal: LEFT, CENTER, RIGHT, JUSTIFY (requires para_pr_id_ref)
-        vertical: TOP, CENTER, BOTTOM (direct attribute on tc)
+        horizontal: LEFT, CENTER, RIGHT, JUSTIFY
+        vertical: TOP, CENTER, BOTTOM
 
-        For horizontal alignment, pass a paraPr ID created via
-        doc.ensure_para_style(align="CENTER"). This ID is set on all
-        paragraphs inside the cell.
+        Vertical alignment is set on the subList vertAlign attribute.
+        Horizontal alignment is set by creating a paraPr with the align.
         """
         cell = self.cell(row_index, col_index)
-        # Vertical align — OWPML <hp:tc vertAlign="CENTER">
+        # Vertical align — OWPML <hp:subList vertAlign="CENTER">
+        sublist = cell.element.find(f"{_HP}subList")
+        if sublist is not None:
+            sublist.set("vertAlign", vertical)
+        # Also set on tc for compatibility
         cell.set_vertical_align(vertical)
-        # Horizontal align — set paraPrIDRef on cell paragraphs
+
+        # Horizontal align — create paraPr if needed
+        if para_pr_id_ref is None and horizontal != "JUSTIFY":
+            # Auto-create a paraPr with horizontal alignment
+            document = self.paragraph.section.document
+            if document is not None:
+                header = document._headers[0] if document._headers else None
+                if header is not None:
+                    para_pr_id_ref = header.create_para_property_with_heading(
+                        heading_type="NONE", heading_id_ref="0", level=0,
+                    )
+                    # Patch the align element to use the requested horizontal
+                    pp_el = header._para_properties_element()
+                    if pp_el is not None:
+                        for pp in pp_el.findall(f"{_HH}paraPr"):
+                            if pp.get("id") == str(para_pr_id_ref):
+                                align_el = pp.find(f"{_HH}align")
+                                if align_el is not None:
+                                    align_el.set("horizontal", horizontal)
+                                break
+
         if para_pr_id_ref is not None:
-            sublist = cell.element.find(f"{_HP}subList")
             if sublist is not None:
                 for p in sublist.findall(f"{_HP}p"):
                     p.set("paraPrIDRef", str(para_pr_id_ref))
