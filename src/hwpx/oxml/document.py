@@ -4099,6 +4099,148 @@ class HwpxOxmlHeader:
             return None
         return ref_list.find(f"{_HH}bullets")
 
+    def _numberings_element(self, create: bool = False) -> ET.Element | None:
+        ref_list = self._ref_list_element(create=create)
+        if ref_list is None:
+            return None
+        element = ref_list.find(f"{_HH}numberings")
+        if element is None and create:
+            element = ref_list.makeelement(f"{_HH}numberings", {"itemCnt": "0"})
+            ref_list.append(element)
+            self.mark_dirty()
+        return element
+
+    def create_numbering(self, *, start: int = 1, format_string: str = "^1.") -> str:
+        """Create a numbering definition in header and return its id.
+
+        Args:
+            start: Starting number.
+            format_string: Format pattern (e.g. "^1." for "1.", "^1)" for "1)")
+        """
+        num_el = self._numberings_element(create=True)
+        if num_el is None:
+            raise RuntimeError("failed to create <numberings>")
+
+        existing_ids = {int(c.get("id", "0")) for c in num_el.findall(f"{_HH}numbering") if c.get("id")}
+        new_id = str(max(existing_ids, default=0) + 1)
+
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        numbering = _mk(num_el, f"{_HH}numbering", {"id": new_id, "start": str(start)})
+        ph = _mk(numbering, f"{_HH}paraHead", {
+            "start": str(start), "level": "1", "align": "LEFT",
+            "useInstWidth": "1", "autoIndent": "1", "widthAdjust": "0",
+            "textOffsetType": "PERCENT", "textOffset": "50",
+            "numFormat": "DIGIT", "charPrIDRef": "4294967295", "checkable": "0",
+        })
+        ph.text = format_string
+
+        num_el.set("itemCnt", str(len(num_el.findall(f"{_HH}numbering"))))
+        self.mark_dirty()
+        return new_id
+
+    def create_bullet(self, *, char: str = "●") -> str:
+        """Create a bullet definition in header and return its id.
+
+        Args:
+            char: Bullet character (e.g. "●", "○", "■", "◆")
+        """
+        bullets_el = self._bullets_element()
+        if bullets_el is None:
+            ref_list = self._ref_list_element(create=True)
+            if ref_list is None:
+                raise RuntimeError("failed to create <refList>")
+            bullets_el = ref_list.makeelement(f"{_HH}bullets", {"itemCnt": "0"})
+            ref_list.append(bullets_el)
+            self.mark_dirty()
+
+        existing_ids = {int(c.get("id", "0")) for c in bullets_el.findall(f"{_HH}bullet") if c.get("id")}
+        new_id = str(max(existing_ids, default=0) + 1)
+
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        bullet = _mk(bullets_el, f"{_HH}bullet", {
+            "id": new_id, "char": char, "useImage": "0",
+        })
+        _mk(bullet, f"{_HH}paraHead", {
+            "level": "0", "align": "LEFT", "useInstWidth": "0",
+            "autoIndent": "1", "widthAdjust": "0",
+            "textOffsetType": "PERCENT", "textOffset": "50",
+            "numFormat": "DIGIT", "charPrIDRef": "4294967295", "checkable": "0",
+        })
+
+        bullets_el.set("itemCnt", str(len(bullets_el.findall(f"{_HH}bullet"))))
+        self.mark_dirty()
+        return new_id
+
+    def create_para_property_with_heading(
+        self, *, heading_type: str = "NUMBER", heading_id_ref: str = "1", level: int = 0,
+    ) -> str:
+        """Create a paraPr with heading reference and return its id.
+
+        This links a paragraph property to a numbering or bullet definition.
+        """
+        para_props = self._para_properties_element()
+        if para_props is None:
+            ref_list = self._ref_list_element(create=True)
+            if ref_list is None:
+                raise RuntimeError("failed to create <refList>")
+            para_props = ref_list.makeelement(f"{_HH}paraProperties", {"itemCnt": "0"})
+            ref_list.append(para_props)
+            self.mark_dirty()
+
+        existing_ids = set()
+        for c in para_props.findall(f"{_HH}paraPr"):
+            raw = c.get("id")
+            if raw:
+                try:
+                    existing_ids.add(int(raw))
+                except ValueError:
+                    pass
+        new_id = str(max(existing_ids, default=0) + 1)
+
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        pp = _mk(para_props, f"{_HH}paraPr", {
+            "id": new_id, "tabPrIDRef": "0", "condense": "0",
+            "fontLineHeight": "0", "snapToGrid": "1",
+            "suppressLineNumbers": "0", "checked": "0",
+        })
+        _mk(pp, f"{_HH}align", {"horizontal": "JUSTIFY", "vertical": "BASELINE"})
+        _mk(pp, f"{_HH}heading", {
+            "type": heading_type, "idRef": heading_id_ref, "level": str(level),
+        })
+        _mk(pp, f"{_HH}breakSetting", {
+            "breakLatinWord": "KEEP_WORD", "breakNonLatinWord": "KEEP_WORD",
+            "widowOrphan": "0", "keepWithNext": "0", "keepLines": "0",
+            "pageBreakBefore": "0", "lineWrap": "BREAK",
+        })
+        _mk(pp, f"{_HH}autoSpacing", {"eAsianEng": "0", "eAsianNum": "0"})
+        margin = _mk(pp, f"{_HH}margin")
+        _mk(margin, f"{_HC}intent", {"value": "0", "unit": "HWPUNIT"})
+        _mk(margin, f"{_HC}left", {"value": "0", "unit": "HWPUNIT"})
+        _mk(margin, f"{_HC}right", {"value": "0", "unit": "HWPUNIT"})
+        _mk(margin, f"{_HC}prev", {"value": "0", "unit": "HWPUNIT"})
+        _mk(margin, f"{_HC}next", {"value": "0", "unit": "HWPUNIT"})
+        _mk(pp, f"{_HH}lineSpacing", {"type": "PERCENT", "value": "160", "unit": "HWPUNIT"})
+        _mk(pp, f"{_HH}border", {
+            "borderFillIDRef": "2", "offsetLeft": "0", "offsetRight": "0",
+            "offsetTop": "0", "offsetBottom": "0", "connect": "0", "ignoreMargin": "0",
+        })
+
+        para_props.set("itemCnt", str(len(para_props.findall(f"{_HH}paraPr"))))
+        self.mark_dirty()
+        return new_id
+
     def _para_properties_element(self) -> ET.Element | None:
         ref_list = self._ref_list_element()
         if ref_list is None:

@@ -1511,6 +1511,84 @@ class HwpxDocument:
 
         return para
 
+    def add_bullet_list(
+        self,
+        items: list[str],
+        *,
+        bullet_char: str = "●",
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+    ) -> list[HwpxOxmlParagraph]:
+        """Add a bulleted list matching real Hancom Office structure.
+
+        Creates bullet definition in header, creates paraPr with heading,
+        then creates paragraphs referencing that paraPr.
+
+        Args:
+            items: List of text items.
+            bullet_char: Bullet character (●, ○, ■, ◆, etc.)
+        """
+        if not self._root.headers:
+            raise ValueError("document has no headers")
+        header = self._root.headers[0]
+
+        bullet_id = header.create_bullet(char=bullet_char)
+        para_pr_id = header.create_para_property_with_heading(
+            heading_type="BULLET", heading_id_ref=bullet_id, level=0,
+        )
+
+        paragraphs = []
+        for item in items:
+            para = self.add_paragraph(
+                item, section=section, section_index=section_index,
+                inherit_style=False, para_pr_id_ref=int(para_pr_id),
+            )
+            paragraphs.append(para)
+        # Reset: add invisible empty paragraph with default style to stop inheritance
+        self.add_paragraph("", section=section, section_index=section_index,
+                          inherit_style=False, para_pr_id_ref=0)
+        return paragraphs
+
+    def add_numbered_list(
+        self,
+        items: list[str],
+        *,
+        start: int = 1,
+        format_string: str = "^1.",
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+    ) -> list[HwpxOxmlParagraph]:
+        """Add a numbered list matching real Hancom Office structure.
+
+        Creates numbering definition in header, creates paraPr with heading,
+        then creates paragraphs referencing that paraPr.
+
+        Args:
+            items: List of text items.
+            start: Starting number.
+            format_string: Number format (e.g. "^1." for "1.", "^1)" for "1)")
+        """
+        if not self._root.headers:
+            raise ValueError("document has no headers")
+        header = self._root.headers[0]
+
+        num_id = header.create_numbering(start=start, format_string=format_string)
+        para_pr_id = header.create_para_property_with_heading(
+            heading_type="NUMBER", heading_id_ref=num_id, level=0,
+        )
+
+        paragraphs = []
+        for item in items:
+            para = self.add_paragraph(
+                item, section=section, section_index=section_index,
+                inherit_style=False, para_pr_id_ref=int(para_pr_id),
+            )
+            paragraphs.append(para)
+        # Reset: add invisible empty paragraph with default style to stop inheritance
+        self.add_paragraph("", section=section, section_index=section_index,
+                          inherit_style=False, para_pr_id_ref=0)
+        return paragraphs
+
     def remove_header(
         self,
         *,
