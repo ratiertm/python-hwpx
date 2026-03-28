@@ -1354,6 +1354,163 @@ class HwpxDocument:
 
         return para
 
+    def add_hyperlink(
+        self,
+        text: str,
+        url: str,
+        *,
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add a hyperlink matching real Hancom Office structure.
+
+        Structure: fieldBegin(HYPERLINK) + text run + fieldEnd
+        Reference: hwpxlib CtrlWriter + real hwpx fieldBegin analysis.
+        """
+        para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
+
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        field_id = str(uuid.uuid4().int % (2**31))
+        begin_id = str(uuid.uuid4().int % (2**31))
+
+        # Run 1: fieldBegin
+        run1 = _mk(para.element, f"{_HP}run", {"charPrIDRef": "0"})
+        ctrl1 = _mk(run1, f"{_HP}ctrl")
+        fb = _mk(ctrl1, f"{_HP}fieldBegin", {
+            "id": begin_id, "type": "HYPERLINK", "name": "",
+            "editable": "0", "dirty": "0", "zorder": "-1", "fieldid": field_id,
+        })
+        params = _mk(fb, f"{_HP}parameters", {"cnt": "3", "name": ""})
+        p1 = _mk(params, f"{_HP}stringParam", {"name": "Command"})
+        p1.text = url
+        p2 = _mk(params, f"{_HP}stringParam", {"name": "Path"})
+        p2.text = url
+        p3 = _mk(params, f"{_HP}stringParam", {"name": "Category"})
+        p3.text = "HWPHYPERLINK_TYPE_URL"
+
+        # Run 2: link text
+        run2 = _mk(para.element, f"{_HP}run", {"charPrIDRef": "0"})
+        t = _mk(run2, f"{_HP}t")
+        t.text = text
+
+        # Run 3: fieldEnd
+        run3 = _mk(para.element, f"{_HP}run", {"charPrIDRef": "0"})
+        ctrl3 = _mk(run3, f"{_HP}ctrl")
+        _mk(ctrl3, f"{_HP}fieldEnd", {"beginIDRef": begin_id, "fieldid": field_id})
+
+        return para
+
+    def add_footnote(
+        self,
+        text: str,
+        anchor_text: str = "",
+        *,
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add a footnote matching real Hancom Office structure.
+
+        Structure: <hp:ctrl><hp:footNote><hp:subList><hp:p>...</hp:p></hp:subList></hp:footNote></hp:ctrl>
+        Reference: hwpxlib FootNoteEndNoteWriter + real hwpx analysis.
+
+        Args:
+            text: Footnote content text.
+            anchor_text: Text in the main body that the footnote is attached to.
+        """
+        para = self.add_paragraph(anchor_text, section=section, section_index=section_index, include_run=True)
+
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        # Find the run element and append ctrl with footNote
+        runs = list(para.element.findall(f"{_HP}run"))
+        if runs:
+            run = runs[-1]
+        else:
+            run = _mk(para.element, f"{_HP}run", {"charPrIDRef": "0"})
+
+        inst_id = str(uuid.uuid4().int % (2**31))
+        ctrl = _mk(run, f"{_HP}ctrl")
+        fn = _mk(ctrl, f"{_HP}footNote", {
+            "number": "1", "suffixChar": "41", "instId": inst_id,
+        })
+
+        sub = _mk(fn, f"{_HP}subList", {
+            "id": "", "textDirection": "HORIZONTAL", "lineWrap": "BREAK",
+            "vertAlign": "TOP", "linkListIDRef": "0", "linkListNextIDRef": "0",
+            "textWidth": "0", "textHeight": "0", "hasTextRef": "0", "hasNumRef": "0",
+        })
+
+        p = _mk(sub, f"{_HP}p", {
+            "id": "0", "paraPrIDRef": "0", "styleIDRef": "0",
+            "pageBreak": "0", "columnBreak": "0", "merged": "0",
+        })
+
+        inner_run = _mk(p, f"{_HP}run", {"charPrIDRef": "0"})
+        # autoNum for footnote numbering
+        inner_ctrl = _mk(inner_run, f"{_HP}ctrl")
+        an = _mk(inner_ctrl, f"{_HP}autoNum", {"num": "1", "numType": "FOOTNOTE"})
+        _mk(an, f"{_HP}autoNumFormat", {
+            "type": "DIGIT", "userChar": "", "prefixChar": "", "suffixChar": ")", "supscript": "0",
+        })
+        t = _mk(inner_run, f"{_HP}t")
+        t.text = f" {text}"
+
+        return para
+
+    def add_endnote(
+        self,
+        text: str,
+        anchor_text: str = "",
+        *,
+        section: HwpxOxmlSection | None = None,
+        section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add an endnote matching real Hancom Office structure."""
+        para = self.add_paragraph(anchor_text, section=section, section_index=section_index, include_run=True)
+
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        runs = list(para.element.findall(f"{_HP}run"))
+        run = runs[-1] if runs else _mk(para.element, f"{_HP}run", {"charPrIDRef": "0"})
+
+        inst_id = str(uuid.uuid4().int % (2**31))
+        ctrl = _mk(run, f"{_HP}ctrl")
+        en = _mk(ctrl, f"{_HP}endNote", {
+            "number": "1", "suffixChar": "41", "instId": inst_id,
+        })
+
+        sub = _mk(en, f"{_HP}subList", {
+            "id": "", "textDirection": "HORIZONTAL", "lineWrap": "BREAK",
+            "vertAlign": "TOP", "linkListIDRef": "0", "linkListNextIDRef": "0",
+            "textWidth": "0", "textHeight": "0", "hasTextRef": "0", "hasNumRef": "0",
+        })
+
+        p = _mk(sub, f"{_HP}p", {
+            "id": "0", "paraPrIDRef": "0", "styleIDRef": "0",
+            "pageBreak": "0", "columnBreak": "0", "merged": "0",
+        })
+
+        inner_run = _mk(p, f"{_HP}run", {"charPrIDRef": "0"})
+        inner_ctrl = _mk(inner_run, f"{_HP}ctrl")
+        an = _mk(inner_ctrl, f"{_HP}autoNum", {"num": "1", "numType": "ENDNOTE"})
+        _mk(an, f"{_HP}autoNumFormat", {
+            "type": "DIGIT", "userChar": "", "prefixChar": "", "suffixChar": ")", "supscript": "0",
+        })
+        t = _mk(inner_run, f"{_HP}t")
+        t.text = f" {text}"
+
+        return para
+
     def remove_header(
         self,
         *,
