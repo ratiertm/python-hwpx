@@ -1731,56 +1731,105 @@ class HwpxDocument:
                               section=section, section_index=section_index)
 
     def add_equation(
-        self, script: str, *, base_unit: int = 1000,
-        section: HwpxOxmlSection | None = None, section_index: int | None = None,
-    ) -> HwpxOxmlInlineObject:
-        """Add an equation with the given script."""
-        return self.add_shape("equation", attributes={
-            "script": script, "baseUnit": str(base_unit),
-        }, section=section, section_index=section_index)
-
-    def add_page_number(
-        self, *, pos: str = "NONE",
-        format_type: str = "DIGIT",
+        self, script: str, *,
+        width: int = 3750, height: int = 3375,
+        base_unit: int = 1000, base_line: int = 61,
+        font: str = "HancomEQN",
         section: HwpxOxmlSection | None = None, section_index: int | None = None,
     ) -> HwpxOxmlParagraph:
-        """Add a page number inline element per OWPML spec.
-
-        This inserts <hp:pageNum> inside a run, which renders as the current
-        page number when opened in Hancom Office.
+        """Add an equation matching real Hancom Office output.
 
         Args:
-            pos: Position hint (NONE, TOP_LEFT, BOTTOM_CENTER, etc.)
-            format_type: Number format (DIGIT, CIRCLE, ROMAN_CAPITAL, etc.)
+            script: Equation script text (Hancom equation syntax).
+            width: Width in hwpunit.
+            height: Height in hwpunit.
+            base_unit: Base unit size (default 1000 = 10pt).
+            base_line: Baseline position (default 61%).
+            font: Equation font (default HancomEQN).
         """
-        from lxml import etree as LET
-        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
         para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
-        run = LET.SubElement(para.element, f"{{{HP}}}run")
-        run.set("charPrIDRef", "0")
-        page_num = LET.SubElement(run, f"{{{HP}}}pageNum")
-        page_num.set("pos", pos)
-        page_num.set("formatType", format_type)
+        run = para.element.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
+        para.element.append(run)
+
+        eq_id = str(uuid.uuid4().int % (2**31))
+        eq = run.makeelement(f"{_HP}equation", {
+            "id": eq_id, "zOrder": "0", "numberingType": "EQUATION",
+            "textWrap": "TOP_AND_BOTTOM", "textFlow": "BOTH_SIDES",
+            "lock": "0", "dropcapstyle": "None",
+            "version": "Equation Version 60",
+            "baseLine": str(base_line), "textColor": "#000000",
+            "baseUnit": str(base_unit), "lineMode": "CHAR", "font": font,
+        })
+        run.append(eq)
+
+        def _mk(parent, tag, attrib=None):
+            child = parent.makeelement(tag, attrib or {})
+            parent.append(child)
+            return child
+
+        _mk(eq, f"{_HP}sz", {
+            "width": str(width), "height": str(height),
+            "widthRelTo": "ABSOLUTE", "heightRelTo": "ABSOLUTE", "protect": "0",
+        })
+        _mk(eq, f"{_HP}pos", {
+            "treatAsChar": "1", "affectLSpacing": "0",
+            "flowWithText": "1", "allowOverlap": "0", "holdAnchorAndSO": "0",
+            "vertRelTo": "PARA", "horzRelTo": "PARA",
+            "vertAlign": "TOP", "horzAlign": "LEFT",
+            "vertOffset": "0", "horzOffset": "0",
+        })
+        _mk(eq, f"{_HP}outMargin", {"left": "56", "right": "56", "top": "0", "bottom": "0"})
+        sc = _mk(eq, f"{_HP}shapeComment")
+        sc.text = "수식입니다."
+        s = _mk(eq, f"{_HP}script")
+        s.text = script
+        return para
+
+    def add_page_number(
+        self, *, pos: str = "BOTTOM_CENTER",
+        format_type: str = "DIGIT",
+        side_char: str = "-",
+        section: HwpxOxmlSection | None = None, section_index: int | None = None,
+    ) -> HwpxOxmlParagraph:
+        """Add a page number inline element matching real Hancom Office output.
+
+        Args:
+            pos: Position (BOTTOM_CENTER, TOP_LEFT, TOP_CENTER, TOP_RIGHT, etc.)
+            format_type: Number format (DIGIT, CIRCLE, ROMAN_CAPITAL, etc.)
+            side_char: Side character displayed around page number (e.g. "-")
+        """
+        para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
+        run = para.element.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
+        para.element.append(run)
+        pn = run.makeelement(f"{_HP}pageNum", {
+            "pos": pos, "formatType": format_type, "sideChar": side_char,
+        })
+        run.append(pn)
         return para
 
     def add_auto_number(
-        self, *, num_type: str = "PAGE",
+        self, *, num_type: str = "PAGE", num: int = 1,
+        format_type: str = "DIGIT",
         section: HwpxOxmlSection | None = None, section_index: int | None = None,
     ) -> HwpxOxmlParagraph:
-        """Add an auto-numbering inline element per OWPML spec.
-
-        This inserts <hp:autoNum> inside a run.
+        """Add an auto-numbering inline element matching real Hancom Office output.
 
         Args:
             num_type: AUTO_NUM type (PAGE, FOOTNOTE, ENDNOTE, PICTURE, TABLE, EQUATION)
+            num: Number value
+            format_type: Number format (DIGIT, CIRCLE, etc.)
         """
-        from lxml import etree as LET
-        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
         para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
-        run = LET.SubElement(para.element, f"{{{HP}}}run")
-        run.set("charPrIDRef", "0")
-        auto_num = LET.SubElement(run, f"{{{HP}}}autoNum")
-        auto_num.set("numType", num_type)
+        run = para.element.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
+        para.element.append(run)
+        ctrl = run.makeelement(f"{_HP}ctrl", {})
+        run.append(ctrl)
+        an = ctrl.makeelement(f"{_HP}autoNum", {"num": str(num), "numType": num_type})
+        ctrl.append(an)
+        anf = an.makeelement(f"{_HP}autoNumFormat", {
+            "type": format_type, "userChar": "", "prefixChar": "", "suffixChar": "", "supscript": "0",
+        })
+        an.append(anf)
         return para
 
     def add_tab(
@@ -1788,11 +1837,10 @@ class HwpxDocument:
     ) -> HwpxOxmlParagraph:
         """Add a tab character."""
         para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
-        from lxml import etree as LET
-        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
-        run = LET.SubElement(para.element, f"{{{HP}}}run")
-        run.set("charPrIDRef", "0")
-        LET.SubElement(run, f"{{{HP}}}tab")
+        run = para.element.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
+        para.element.append(run)
+        tab = run.makeelement(f"{_HP}tab", {})
+        run.append(tab)
         return para
 
     def add_line_break(
@@ -1800,11 +1848,10 @@ class HwpxDocument:
     ) -> HwpxOxmlParagraph:
         """Add a line break character."""
         para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
-        from lxml import etree as LET
-        HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
-        run = LET.SubElement(para.element, f"{{{HP}}}run")
-        run.set("charPrIDRef", "0")
-        LET.SubElement(run, f"{{{HP}}}lineBreak")
+        run = para.element.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
+        para.element.append(run)
+        lb = run.makeelement(f"{_HP}lineBreak", {})
+        run.append(lb)
         return para
 
     # SPEC: e2e-phase2-006 -- create_style
