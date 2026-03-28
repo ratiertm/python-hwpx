@@ -1801,10 +1801,12 @@ class HwpxDocument:
         para = self.add_paragraph("", section=section, section_index=section_index, include_run=False)
         run = para.element.makeelement(f"{_HP}run", {"charPrIDRef": "0"})
         para.element.append(run)
-        pn = run.makeelement(f"{_HP}pageNum", {
+        ctrl = run.makeelement(f"{_HP}ctrl", {})
+        run.append(ctrl)
+        pn = ctrl.makeelement(f"{_HP}pageNum", {
             "pos": pos, "formatType": format_type, "sideChar": side_char,
         })
-        run.append(pn)
+        ctrl.append(pn)
         return para
 
     def add_auto_number(
